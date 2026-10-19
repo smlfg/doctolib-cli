@@ -257,8 +257,14 @@ def list_motives(info: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _normalize_days(value: int | None) -> int:
-    if not isinstance(value, int) or value < 1 or value > 30:
+    """Gibt ``days`` zurück oder wirft ValueError bei ungültigem Wert."""
+    if value is None:
         return 7
+    if not isinstance(value, int):
+        # argparse liefert hier int, aber für Tests/type-safety hart prüfen.
+        raise ValueError("days muss eine Ganzzahl sein")
+    if value < 1 or value > 30:
+        raise ValueError("--days muss 1..30 sein")
     return value
 
 
@@ -276,6 +282,9 @@ def slots_for_profile(slug_or_url: str, *,
     if not slug:
         return 1, {"error": {"kind": "usage", "code": 1,
                              "message": f"Slug/URL nicht parsebar: {slug_or_url!r}"}}
+    if isinstance(days, int) and (days < 1 or days > 30):
+        return 1, {"error": {"kind": "usage", "code": 1,
+                             "message": "--days muss 1..30 sein"}}
     n_days = _normalize_days(days)
     ins = INSURANCE_BY_ALIAS.get((insurance or "").strip().lower(),
                                  DEFAULT_INSURANCE)
@@ -309,24 +318,64 @@ def slots_for_profile(slug_or_url: str, *,
 
     start_dt = _now_iso()
     places_index = _build_places_index(info)
+
+    # Doctolib begrenzt ``limit`` auf 7 Tage pro Request. Für ``days>7``
+    # paginieren wir mit fortlaufendem ``start_date_time`` (Datum nach
+    # dem letzten Tag des vorherigen Calls).
     all_slots: list[dict[str, Any]] = []
     last: dict[str, Any] | None = None
     next_slot: str | None = None
     for cfg in chosen:
-        try:
-            data = _call_availabilities(
-                cfg["visit_motive_id"], cfg["agenda_id"],
-                cfg["practice_id"], cfg["insurance"],
-                start_date_time=start_dt, limit=n_days, base_url=base_url,
-            )
-        except HttpError as exc:
-            return exc.code, {"error": {"kind": exc.kind, "code": exc.code,
-                                        "message": str(exc)}}
-        last = data
-        nxt = data.get("next_slot")
-        if isinstance(nxt, str) and nxt and not next_slot:
-            next_slot = nxt
-        all_slots.extend(_flatten_to_records(data, cfg, places_index))
+        remaining = n_days
+        cursor_dt = start_dt
+        while remaining > 0:
+            chunk = min(7, remaining)
+            try:
+                data = _call_availabilities(
+                    cfg["visit_motive_id"], cfg["agenda_id"],
+                    cfg["practice_id"], cfg["insurance"],
+                    start_date_time=cursor_dt, limit=chunk,
+                    base_url=base_url,
+                )
+            except HttpError as exc:
+                return exc.code, {
+                    "error": {"kind": exc.kind, "code": exc.code,
+                              "message": str(exc)}}
+            last = data
+            nxt = data.get("next_slot")
+            if isinstance(nxt, str) and nxt and not next_slot:
+                next_slot = nxt
+
+            dates = (data.get("availabilities") or [])
+            new_records = _flatten_to_records(data, cfg, places_index)
+            all_slots.extend(new_records)
+
+            # Wenn dieser Chunk einen Tag weniger als angefordert liefert
+            # (oder total=0), abbrechen, sonst Endlos-Pagination.
+            real_days = sum(1 for d in dates
+                            if isinstance(d, dict)
+                            and d.get("date")
+                            and (d.get("slots") or []))
+            chunk_dates = [d["date"] for d in dates
+                           if isinstance(d, dict) and d.get("date")]
+            if real_days < chunk and not chunk_dates:
+                break
+            if chunk_dates:
+                last_date = max(chunk_dates)
+                try:
+                    next_cursor = (
+                        datetime.fromisoformat(last_date)
+                        + timedelta(days=1)
+                    ).replace(hour=0, minute=0, second=0, microsecond=0)
+                    next_cursor = next_cursor.replace(
+                        tzinfo=_resolve_local_tz())
+                except ValueError:
+                    break
+                cursor_dt = next_cursor.isoformat()
+            remaining -= chunk
+            if real_days == 0:
+                # Nichts mehr in dieser Praxis; keine weiteren Calls.
+                break
 
     all_slots.sort(key=lambda s: (s["date"], s["slot"]))
 

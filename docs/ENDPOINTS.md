@@ -47,10 +47,39 @@ curl -sS -A "Mozilla/5.0 ..." https://www.doctolib.de/hautarzt/berlin | grep -oE
 - `specialities` (statisch) liefern wir in Lauf A/B als bekannte Liste.
 - Für die `search`-Validierung reicht es, Eingabe (z.B. `hautarzt berlin`) anhand einer Whitelist/Heuristik zu mappen (Klartext→Slug) und Doctolib die harte Validierung machen zu lassen (404 = klares Signal).
 
-## 7. Profile-JSON, Profil (für slots)
+## 7. Profile-Daten für `slots`
 
-- Profilseite triggert zusätzlich `https://www.doctolib.de/search/availabilities.json?…&practice_ids=<ID>` direkt im HTML. Die `practice_ids` stammen aus dem `?pid=practice-635395` in der Profil-URL.
-- Für `slots` in Lauf B/C brauchen wir: `practice_id` (aus URL), `visit_motive_id`s (aus ld+json `availableService` – Doctolib-ID ist nicht der Service-Name). Workaround: Profile-HTML nach `data-visit-motive-id` o.ä. scannen, oder den Microfrontend-Manifest-JSON parsen.
+- **Online-Booking-Info** (Doctolib-Microfrontend, ohne Playwright):
+  `GET https://www.doctolib.de/online_booking/api/slot_selection_funnel/v1/info.json?profile_slug=<slug>&locale=de`
+  → liefert alles Nötige:
+  - `data.profile.{id, name_with_title, specialty, picture_url, organization}`
+  - `data.places[]`: alle Standorte (`{id: practice-NNNNN, name,
+    address, zipcode, city, practice_ids[N], slug}`)
+  - `data.agendas[]`: jeder Kalender hat `id` (agenda_id),
+    `practice_id`, `visit_motive_ids[]`, `booking_temporary_disabled`.
+  - `data.visit_motives[]`: jeder Terminart mit `id`, `name`,
+    `visit_motive_category_id`, `configurations[]`.
+  - `data.visit_motive_categories[]`.
+  - `configurations[]`: pro Versicherungsart (`public`/`private`)
+    + `agenda_id` (oder `null` für die Default-Agenda dieses Tupels),
+    `disabled`, `online_booking_status`
+    (`enabled_for_all` / `enabled_for_existing_only` / `null`).
+
+- **Slots** (Verfügbarkeiten):
+  `GET https://www.doctolib.de/search/availabilities.json?...`
+  - Pflicht-Query: `start_date_time` (ISO8601 inkl. Offset),
+    `visit_motive_id`, `agenda_ids`, `practice_ids`,
+    `insurance_sector` (`public`/`private`), `telehealth=false`,
+    `limit=1..7` (**Doctolib antwortet 400 bei `limit>7`** – deshalb
+    paginieren wir für `--days>7` mit fortlaufendem `start_date_time`).
+  - Antwort: `{availabilities:[{date, slots:[ISO8601], …}], total,
+    reason, next_slot, draft}`.
+
+- **Workaround für mehrere Praxen/Standorte**: Wir fragen pro
+  `(visit_motive_id, agenda_id, practice_id, insurance)`-Tupel
+  einzeln ab. Bei Profilen mit vielen Praxen (z. B. Ketten mit 4
+  Standorten) deckeln wir die Anzahl der Tupel pro Call (Default 8),
+  das Resultat meldet `truncated:true`.
 
 ## 6. Was wir NICHT tun
 

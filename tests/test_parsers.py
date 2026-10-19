@@ -7,7 +7,9 @@ import json
 from doctolib_cli.search import (
     _LdJsonExtractor,
     _extract_collection,
+    _extract_window_place,
     _item_to_record,
+    _provider_to_record,
     _slugify_location,
 )
 from doctolib_cli.show import (
@@ -113,6 +115,33 @@ def test_item_to_record_accepts_dict_without_inner_item() -> None:
     })
     assert rec is not None
     assert rec["name"] == "Dr. B"
+
+
+def test_extract_window_place_from_inline_script() -> None:
+    html = (
+        "<html><body><script>window.place = "
+        '{"id": 1, "name": "Heilbronn", "slug": "heilbronn"};'
+        "</script></body></html>"
+    )
+    place = _extract_window_place(html)
+    assert place is not None
+    assert place["slug"] == "heilbronn"
+
+
+def test_provider_to_record_maps_phs_shape() -> None:
+    rec = _provider_to_record({
+        "name": "Dr. Zahn",
+        "type": "PERSON",
+        "link": "/zahnarzt/heilbronn/dr-zahn?pid=practice-99",
+        "location": {"address": "Hauptstr. 1", "zipcode": "74072",
+                     "city": "Heilbronn"},
+        "matchedVisitMotive": {"name": "Kontrolle"},
+        "references": {"practiceId": 99},
+    })
+    assert rec is not None
+    assert rec["type"] == "Physician"
+    assert rec["address"]["city"] == "Heilbronn"
+    assert rec["practice_id"] == 99
 
 
 # ----- show parser --------------------------------------------------------

@@ -19,9 +19,19 @@ import re
 from html.parser import HTMLParser
 from typing import Any
 
+import requests
+
 LOG = logging.getLogger("doctolib_cli.search")
 
 PLAYWRIGHT_TIMEOUT_S = 30.0
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+}
+_WINDOW_PLACE_RE = re.compile(r"window\.place\s*=\s*(\{.+?\});", re.DOTALL)
 
 
 def _slugify_location(value: str) -> str:
@@ -149,27 +159,37 @@ def search_speciality_location(speciality: str, location: str,
                               "message": f"Ort nicht parsebar: {location!r}"}}
 
     url = f"{base_url.rstrip('/')}/{sp_slug}/{loc_slug}"
+    html: str | None = None
     try:
         html = _fetch_search_html(url)
     except _SearchFetchError as exc:
-        return exc.code, {"error": {"kind": exc.kind, "code": exc.code,
-                                     "message": str(exc)}}
+        if exc.code != 3:
+            return exc.code, {"error": {"kind": exc.kind, "code": exc.code,
+                                         "message": str(exc)}}
+        html = _fetch_listing_requests(url)
+        if html is None:
+            return exc.code, {"error": {"kind": exc.kind, "code": exc.code,
+                                         "message": str(exc)}}
 
     if html is None:
         return 3, {"error": {"kind": "network", "code": 3,
                               "message": f"Doctolib liefert nichts für {url}"}}
 
-    items = _extract_collection(html)
-    if not items:
+    records = _records_from_search_html(html, url, sp_slug, limit=limit)
+    if not records and _is_access_blocked(html):
+        alt = _fetch_listing_requests(url)
+        if alt:
+            html = alt
+            records = _records_from_search_html(html, url, sp_slug, limit=limit)
+    if not records:
+        if _is_access_blocked(html):
+            return 3, {"error": {"kind": "network", "code": 3,
+                                  "message": ("Doctolib Bot-Schutz/Captcha "
+                                              "(keine Trefferliste). VPN aus, "
+                                              "später erneut versuchen.")}}
         return 4, {"error": {"kind": "parse", "code": 4,
-                              "message": ("keine ItemList im ld+json "
-                                          "(Doctolib-Layout geändert?)")}}
-
-    records: list[dict[str, Any]] = []
-    for it in items[:limit]:
-        rec = _item_to_record(it)
-        if rec is not None:
-            records.append(rec)
+                              "message": ("keine Treffer parsebar "
+                                          "(ld+json/PHS-API leer?)")}}
 
     return 0, {
         "query": {"speciality": sp_slug, "location": loc_slug,
@@ -177,6 +197,136 @@ def search_speciality_location(speciality: str, location: str,
         "count": len(records),
         "results": records,
     }
+
+
+def _is_access_blocked(html: str) -> bool:
+    low = html.lower()
+    return any(
+        needle in low
+        for needle in (
+            "kein roboter",
+            "__cf_chl",
+            "wir müssen kurz überprüfen",
+            "support-code:",
+        )
+    )
+
+
+def _extract_window_place(html: str) -> dict[str, Any] | None:
+    m = _WINDOW_PLACE_RE.search(html)
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group(1))
+    except json.JSONDecodeError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _provider_to_record(prov: dict[str, Any]) -> dict[str, Any] | None:
+    name = prov.get("name")
+    link = prov.get("link") or ""
+    if not name or not link:
+        return None
+    loc_any = prov.get("location") or {}
+    loc: dict[str, Any] = loc_any if isinstance(loc_any, dict) else {}
+    slug = link.lstrip("/").split("?")[0]
+    refs_any = prov.get("references") or {}
+    refs: dict[str, Any] = refs_any if isinstance(refs_any, dict) else {}
+    motive_any = prov.get("matchedVisitMotive") or {}
+    motive: dict[str, Any] = motive_any if isinstance(motive_any, dict) else {}
+    ptype = prov.get("type") or "Unknown"
+    if ptype == "PERSON":
+        schema_type = "Physician"
+    elif ptype == "ORGANIZATION":
+        schema_type = "MedicalOrganization"
+    else:
+        schema_type = str(ptype)
+    url = link if link.startswith("http") else f"https://www.doctolib.de/{slug}"
+    return {
+        "name": name,
+        "type": schema_type,
+        "address": {
+            "street": loc.get("address"),
+            "postal_code": loc.get("zipcode"),
+            "city": loc.get("city"),
+        },
+        "motive": motive.get("name"),
+        "slug": slug,
+        "url": url,
+        "practice_id": refs.get("practiceId"),
+    }
+
+
+def _fetch_phs_providers(url: str, keyword_slug: str, place: dict[str, Any],
+                         *, limit: int,
+                         base_url: str = "https://www.doctolib.de",
+                         ) -> list[dict[str, Any]]:
+    payload = {
+        "keyword": keyword_slug,
+        "location": {"place": place},
+        "filters": {},
+    }
+    api = (f"{base_url.rstrip('/')}/patient-health-search/api/v1/"
+           "hcp/search?page=0")
+    resp = requests.post(
+        api,
+        json=payload,
+        headers={
+            **_BROWSER_HEADERS,
+            "Content-Type": "application/json",
+            "Referer": url,
+            "Origin": base_url.rstrip("/"),
+        },
+        timeout=PLAYWRIGHT_TIMEOUT_S,
+    )
+    if resp.status_code not in (200, 206):
+        LOG.debug("PHS search HTTP %s: %s", resp.status_code, resp.text[:200])
+        return []
+    try:
+        data = resp.json()
+    except json.JSONDecodeError:
+        return []
+    providers = data.get("healthcareProviders")
+    if not isinstance(providers, list):
+        return []
+    return [p for p in providers if isinstance(p, dict)][:limit]
+
+
+def _records_from_search_html(html: str, page_url: str, keyword_slug: str,
+                              *, limit: int) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    items = _extract_collection(html)
+    for it in items[:limit]:
+        rec = _item_to_record(it)
+        if rec is not None:
+            records.append(rec)
+    if records:
+        return records
+    place = _extract_window_place(html)
+    if place:
+        for prov in _fetch_phs_providers(page_url, keyword_slug, place,
+                                         limit=limit):
+            rec = _provider_to_record(prov)
+            if rec is not None:
+                records.append(rec)
+    return records
+
+
+def _fetch_listing_requests(url: str) -> str | None:
+    """HTTP-Fallback wenn Playwright an Bot-Schutz scheitert."""
+    try:
+        resp = requests.get(url, headers=_BROWSER_HEADERS,
+                            timeout=PLAYWRIGHT_TIMEOUT_S)
+    except requests.RequestException as exc:
+        LOG.debug("requests listing failed: %s", exc)
+        return None
+    if resp.status_code == 404:
+        return None
+    if resp.status_code >= 400:
+        LOG.debug("listing HTTP %s for %s", resp.status_code, url)
+        return None
+    return resp.text
 
 
 class _SearchFetchError(Exception):
@@ -218,6 +368,8 @@ def _fetch_search_html(url: str) -> str | None:
                     raise _SearchFetchError(3, "network",
                                             "kein Doctolib-Pass für diese "
                                             "Fach/Ort-Kombination (HTTP 404)")
+                if status in (403, 429):
+                    return page.content()
                 if status >= 400:
                     raise _SearchFetchError(3, "network",
                                             f"Doctolib HTTP {status}")

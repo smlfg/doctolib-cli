@@ -90,6 +90,8 @@ def build_parser() -> argparse.ArgumentParser:
     pw_a = pw_sub.add_parser("add")
     pw_a.add_argument("profile")
     pw_a.add_argument("--motive", default=None)
+    pw_a.add_argument("--insurance", default="any",
+                      help="public|private|any (Default any).")
     pw_a.add_argument("--before", default=None, help="YYYY-MM-DD")
     _add_json_flag(pw_a)
     pw_l = pw_sub.add_parser("list")
@@ -174,19 +176,63 @@ def cmd_book(args: argparse.Namespace) -> int:
 
 
 def cmd_watch_add(args: argparse.Namespace) -> int:
-    return _not_implemented("watch add", args.json)
+    from . import watch as watch_mod
+    code, payload = watch_mod.add_watch(
+        args.profile, motive=args.motive,
+        insurance=args.insurance, before=args.before)
+    if code != 0:
+        err = payload["error"]
+        return fail(err["code"], err["message"],
+                    as_json=args.json, kind=err["kind"])
+    return emit(payload, args.json)
 
 
 def cmd_watch_list(args: argparse.Namespace) -> int:
-    return _not_implemented("watch list", args.json)
+    from . import watch as watch_mod
+    code, payload = watch_mod.list_watches()
+    if code != 0:
+        err = payload["error"]
+        return fail(err["code"], err["message"],
+                    as_json=args.json, kind=err["kind"])
+    if args.json:
+        return emit(payload, True)
+    items = payload.get("watches") or []
+    if not items:
+        sys.stdout.write("(keine Watches)\n")
+        return 0
+    sys.stdout.write(f"{'ID':<10} {'PROFIL':<40} {'MOTIV':<20} "
+                     f"{'VERSICH.':<10} {'BEFORE':<12} LETZTE PRÜFUNG\n")
+    for w in items:
+        sys.stdout.write(
+            f"{w.get('id',''):<10} "
+            f"{(w.get('profile') or ''):<40} "
+            f"{str(w.get('motive') or ''):<20} "
+            f"{str(w.get('insurance') or ''):<10} "
+            f"{str(w.get('before') or '-'):<12} "
+            f"{str(w.get('last_checked') or '-')}\n"
+        )
+    sys.stdout.write(f"\n{payload.get('count', len(items))} Watches.\n")
+    return 0
 
 
 def cmd_watch_remove(args: argparse.Namespace) -> int:
-    return _not_implemented("watch remove", args.json)
+    from . import watch as watch_mod
+    code, payload = watch_mod.remove_watch(args.id)
+    if code != 0:
+        err = payload["error"]
+        return fail(err["code"], err["message"],
+                    as_json=args.json, kind=err["kind"])
+    return emit(payload, args.json)
 
 
 def cmd_watch_check(args: argparse.Namespace) -> int:
-    return _not_implemented("watch check", args.json)
+    from . import watch as watch_mod
+    code, payload = watch_mod.check_watches()
+    if code != 0:
+        err = payload["error"]
+        return fail(err["code"], err["message"],
+                    as_json=args.json, kind=err["kind"])
+    return emit(payload, args.json)
 
 
 HANDLERS: dict[str, Callable] = {

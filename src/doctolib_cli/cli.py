@@ -70,6 +70,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_sl.add_argument("--motive", default=None,
                       help="Visit-Motive-ID oder -Text (optional).")
     p_sl.add_argument("--days", type=int, default=7, help="1..30 (default 7).")
+    p_sl.add_argument("--insurance", default="any",
+                      help="public|private|any (Default any). Aliasse: "
+                           "gesetzlich=public, privat/pkv=private.")
     _add_json_flag(p_sl)
 
     p_sp = sub.add_parser("specialities", help="Bekannte Fachrichtungs-Slugs.")
@@ -135,6 +138,7 @@ def cmd_slots(args: argparse.Namespace) -> int:
         args.slug_or_url,
         motive=args.motive,
         days=args.days,
+        insurance=args.insurance,
     )
     if code != 0:
         err = payload["error"]

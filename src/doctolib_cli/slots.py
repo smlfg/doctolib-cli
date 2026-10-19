@@ -41,7 +41,38 @@ LOG = logging.getLogger("doctolib_cli.slots")
 DEFAULT_INSURANCE = "public"
 INSURANCE_BY_ALIAS = {"gesetzlich": "public", "privat": "private",
                       "public": "public", "private": "private",
-                      "pkv": "private", "gkv": "public"}
+                      "pkv": "private", "gkv": "public",
+                      "any": "any", "beide": "any", "alle": "any"}
+
+
+def _resolve_insurance(value: str | None) -> str:
+    """Mappt Aliasse auf ``public``/``private``/``any``. Leer → ``any``.
+
+    Unbekannte Werte → ValueError (Caller macht Exit 1).
+    """
+    if value is None:
+        return "any"
+    s = str(value).strip().lower()
+    if not s:
+        return "any"
+    if s not in INSURANCE_BY_ALIAS:
+        raise ValueError(
+            f"--insurance muss public|private|any sein (alias: gesetzlich/privat/pkv/gkv) belassen, nicht {value!r}"
+        )
+    return INSURANCE_BY_ALIAS[s]
+
+
+def _filter_configs_by_insurance(configs: list[dict[str, Any]],
+                                 insurance: str) -> list[dict[str, Any]]:
+    """Filtert Configs nach Insurance.
+
+    - ``public``/``private``: nur die entsprechenden Tupel.
+    - ``any``: unverändert.
+    - Wenn nach Filter nichts übrig → leere Liste (Caller entscheidet Exit).
+    """
+    if insurance == "any":
+        return configs
+    return [c for c in configs if c.get("insurance") == insurance]
 
 
 def _resolve_local_tz() -> Any:
@@ -276,10 +307,15 @@ def _normalize_days(value: int | None) -> int:
 def slots_for_profile(slug_or_url: str, *,
                       motive: str | None = None,
                       days: int | None = 7,
-                      insurance: str = DEFAULT_INSURANCE,
+                      insurance: str = "any",
                       base_url: str = "https://www.doctolib.de"
                       ) -> tuple[int, dict[str, Any]]:
-    """Liefert (exit_code, payload)."""
+    """Liefert (exit_code, payload).
+
+    ``insurance``: ``public``/``private``/``any`` (Default).
+    Bei ``any`` werden sowohl Kassen- als auch Privat-Tupel abgefragt
+    (max. ``MAX_TUPLED`` Tupel gedeckelt).
+    """
     if not slug_or_url or not slug_or_url.strip():
         return 1, {"error": {"kind": "usage", "code": 1,
                              "message": "Slug oder URL fehlt"}}
@@ -291,14 +327,16 @@ def slots_for_profile(slug_or_url: str, *,
         return 1, {"error": {"kind": "usage", "code": 1,
                              "message": "--days muss 1..30 sein"}}
     n_days = _normalize_days(days)
-    ins = INSURANCE_BY_ALIAS.get((insurance or "").strip().lower(),
-                                 DEFAULT_INSURANCE)
+    try:
+        ins = _resolve_insurance(insurance)
+    except ValueError as exc:
+        return 1, {"error": {"kind": "usage", "code": 1, "message": str(exc)}}
 
     info = _load_info(slug, base_url=base_url)
     if not info:
         return 4, {"error": {"kind": "parse", "code": 4,
                              "message": (f"info.json nicht abrufbar für {slug} "
-                                         "(kein Online-Booking oder Doctolib-Blockade)")}}
+                                        "(kein Online-Booking oder Doctolib-Blockade)")}}
 
     configs = _bookable_configs(info)
     if not configs:
@@ -309,17 +347,29 @@ def slots_for_profile(slug_or_url: str, *,
             "available_motives": motives_all,
         }}
 
+    # Versicherungs-Filter anwenden, bevor motive-Matching passiert.
+    configs_for_motive = _filter_configs_by_insurance(configs, ins)
+    if not configs_for_motive:
+        return 1, {"error": {
+            "kind": "usage", "code": 1,
+            "message": (f"--insurance {ins!r}: keine online-buchbaren "
+                        "(visit_motive, agenda)-Tupel mit dieser Versicherungsart"),
+            "available_motives": list_motives(info),
+        }}
+
     if motive:
-        chosen = _match_motive(motive, configs)
+        chosen = _match_motive(motive, configs_for_motive)
         if not chosen:
             return 1, {"error": {
                 "kind": "usage", "code": 1,
                 "message": (f"--motive {motive!r} passt zu keinem "
-                            "online-buchbaren Motiv dieses Profils"),
+                            "online-buchbaren Motiv dieses Profils "
+                            f"(insurance={ins})"),
                 "available_motives": list_motives(info),
             }}
     else:
-        chosen = _pick_default(configs, insurance=ins)
+        chosen = _pick_default(configs_for_motive, insurance=(
+            "public" if ins == "any" else ins))
 
     start_dt = _now_iso()
     places_index = _build_places_index(info)
@@ -417,6 +467,8 @@ def slots_for_profile(slug_or_url: str, *,
             "practice_address": practice_meta.get("address"),
         },
         "motive": motive_first,
+        "insurance_requested": ins,
+        "insurances_queried": sorted({c["insurance"] for c in chosen}),
         "availabilities": [
             {"date": d, "slots": sorted(set(sl))} for d, sl in
             sorted(by_date.items())

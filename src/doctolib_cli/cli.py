@@ -79,11 +79,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json_flag(p_sp)
 
     p_b = sub.add_parser("book", help="Termin buchen (NICHT UNTERSTÜTZT).")
-    p_b.add_argument("rest", nargs=argparse.REMAINDER,
-                     help="Argumente werden ignoriert.")
     p_b.add_argument("--confirm", action="store_true",
                      help="Wird trotzdem abgelehnt (Doku).")
     _add_json_flag(p_b)
+    # nargs='*' (nicht REMAINDER): sonst landen --json/--confirm in rest[].
+    p_b.add_argument("rest", nargs="*", help="Argumente werden ignoriert.")
 
     pw = sub.add_parser("watch", help="Lokal auf freie Termine warten.")
     pw_sub = pw.add_subparsers(dest="watch_cmd", required=True)

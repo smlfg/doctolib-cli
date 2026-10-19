@@ -434,6 +434,17 @@ def test_book_always_exit_5_json(capsys) -> None:  # type: ignore[no-untyped-def
 def test_book_always_exit_5_with_confirm(capsys) -> None:  # type: ignore[no-untyped-def]
     code = cli.main(["book", "foo", "bar", "--confirm", "--json"])
     assert code == 5
+    out = capsys.readouterr().out
+    assert "\"unsupported\"" in out
+    assert "\"code\": 5" in out
+
+
+def test_book_json_before_positionals(capsys) -> None:  # type: ignore[no-untyped-def]
+    code = cli.main(["book", "--json", "foo"])
+    assert code == 5
+    out = capsys.readouterr().out
+    assert "\"unsupported\"" in out
+    assert "\"code\": 5" in out
 
 
 def test_book_no_json_text_mode(capsys) -> None:  # type: ignore[no-untyped-def]

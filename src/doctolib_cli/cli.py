@@ -108,7 +108,16 @@ def _not_implemented(cmd: str, as_json: bool) -> int:
 
 
 def cmd_search(args: argparse.Namespace) -> int:
-    return _not_implemented("search", args.json)
+    from . import search as search_mod
+    code, payload = search_mod.search_speciality_location(
+        args.speciality, args.location, limit=args.limit,
+    )
+    return emit(payload, args.json) if code == 0 else fail(
+        payload["error"]["code"],
+        payload["error"]["message"],
+        as_json=args.json,
+        kind=payload["error"]["kind"],
+    )
 
 
 def cmd_show(args: argparse.Namespace) -> int:

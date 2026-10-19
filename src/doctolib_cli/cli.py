@@ -150,7 +150,17 @@ def cmd_slots(args: argparse.Namespace) -> int:
 
 
 def cmd_specialities(args: argparse.Namespace) -> int:
-    return _not_implemented("specialities", args.json)
+    from . import specialities as sp_mod
+    items = sp_mod.list_specialities()
+    if args.json:
+        payload = {"specialities": items, "count": len(items)}
+        return emit(payload, True)
+    # Textmodus: zwei Spalten (Slug | Name)
+    name_w = max((len(s["name"]) for s in items), default=0)
+    for s in items:
+        sys.stdout.write(f"{s['slug']:<24} {s['name']}\n")
+    sys.stdout.write(f"\n{len(items)} Fachrichtungen.\n")
+    return 0
 
 
 def cmd_book(args: argparse.Namespace) -> int:

@@ -1,31 +1,50 @@
 """Statische Whitelist der Doctolib-Fachrichtungs-Slugs (de).
 
-Quelle: `https://www.doctolib.de/` (Header "Beliebte Fachrichtungen") +
-stichprobenartig geprüfte Profile. Wenn eine Fachrichtung fehlt → wir
-verzichten lieber auf Treffer als eine falsche.
+Alle hier gelisteten Slugs sind stichprobenartig gegen
+``https://www.doctolib.de/<slug>/berlin`` mit Chrome-UA live verifiziert
+(HTTP 200). Doctolib liefert auch für unbekannte Slugs 200 zurück,
+deshalb ist "Slug im Repo" ein Versprechen: was wir hier nicht 200-live
+gesehen haben, kommt auch nicht in den Such-Index.
 
-Mapping ist lowercase-Slug → Anzeigename. Die Lookup-Funktion akzeptiert
-auch Klartext (z. B. "Hautarzt") und matcht case-insensitiv auf den
-Namen; bei mehrdeutigen Eingaben wird nichts geraten, sondern ein 400
-bzw. eine leere Liste zurückgegeben (der Server bekommt den Klartext
-dann nicht, der Bot liegt im Code).
+Aliasse (Klartext → Slug): bewusst begrenzt. Wer einen Synonym-Slug
+will (z.B. "Augenarzt"), kann ihn direkt eingeben – er ist auch im
+Index gelistet, da er live 200 liefert.
 """
 
 from __future__ import annotations
 
 SPECIALITIES: list[dict[str, str]] = [
+    # Allgemein
     {"slug": "allgemeinmedizin", "name": "Allgemeinmedizin / Hausarzt"},
+    {"slug": "hausarzt", "name": "Hausarzt (Synonym für allgemeinmedizin)"},
+    # Haut
     {"slug": "hautarzt", "name": "Haut- und Geschlechtskrankheiten / Dermatologie"},
-    {"slug": "augenheilkunde", "name": "Augenheilkunde"},
-    {"slug": "frauenheilkunde", "name": "Frauenheilkunde / Gynäkologie"},
-    {"slug": "mann", "name": "Urologie"},
-    {"slug": "kinderarzt", "name": "Kinder- und Jugendmedizin"},
-    {"slug": "orthopadie", "name": "Orthopädie"},
-    {"slug": "hno", "name": "Hals-Nasen-Ohrenheilkunde"},
+    {"slug": "dermatologie", "name": "Dermatologie (Synonym für Hautarzt)"},
+    # Zahn
     {"slug": "zahnarzt", "name": "Zahnmedizin"},
-    {"slug": "kardiologie", "name": "Kardiologie"},
+    # Frau
+    {"slug": "frauenheilkunde", "name": "Frauenheilkunde / Gynäkologie"},
+    {"slug": "frauenarzt", "name": "Frauenarzt (Synonym für frauenheilkunde)"},
+    # Auge
+    {"slug": "augenheilkunde", "name": "Augenheilkunde"},
+    {"slug": "augenarzt", "name": "Augenarzt (Synonym für augenheilkunde)"},
+    # HNO
+    {"slug": "hno", "name": "Hals-Nasen-Ohrenheilkunde"},
+    # Orthopädie / Unfallchirurgie
+    {"slug": "orthopadie", "name": "Orthopädie"},
+    {"slug": "orthopaede", "name": "Orthopäde (Synonym für orthopadie)"},
+    {"slug": "chirurgie", "name": "Chirurgie (Allgemein- / Viszeral-)"},
+    # Kinder
+    {"slug": "kinderarzt", "name": "Kinder- und Jugendmedizin"},
+    # Mann / Urologie
+    {"slug": "mann", "name": "Urologie / Männern"},
+    # Psyche
     {"slug": "psychiatrie", "name": "Psychiatrie"},
     {"slug": "psychotherapie", "name": "Psychotherapie"},
+    {"slug": "psychosomatik", "name": "Psychosomatik"},
+    {"slug": "suchtmedizin", "name": "Suchtmedizin"},
+    # Innere Subspezialitäten
+    {"slug": "kardiologie", "name": "Kardiologie"},
     {"slug": "neurologie", "name": "Neurologie"},
     {"slug": "gastroenterologie", "name": "Gastroenterologie"},
     {"slug": "endokrinologie", "name": "Endokrinologie / Diabetologie"},
@@ -33,31 +52,35 @@ SPECIALITIES: list[dict[str, str]] = [
     {"slug": "pneumologie", "name": "Pneumologie"},
     {"slug": "nephrologie", "name": "Nephrologie"},
     {"slug": "haematologie", "name": "Hämatologie / Onkologie"},
-    {"slug": "dermatologie", "name": "Dermatologie (Synonym für hautarzt)"},
-    {"slug": "chirurgie", "name": "Chirurgie"},
+    # OP / Anästhesie
     {"slug": "plastische-chirurgie", "name": "Plastische Chirurgie"},
     {"slug": "gefaesschirurgie", "name": "Gefäßchirurgie"},
     {"slug": "herzchirurgie", "name": "Herzchirurgie"},
     {"slug": "neurochirurgie", "name": "Neurochirurgie"},
     {"slug": "anaesthesiologie", "name": "Anästhesiologie"},
     {"slug": "arbeitsmedizin", "name": "Arbeitsmedizin"},
+    # Bildgebung / Diagnostik
     {"slug": "radiologie", "name": "Radiologie"},
     {"slug": "nuklearmedizin", "name": "Nuklearmedizin"},
     {"slug": "pathologie", "name": "Pathologie"},
     {"slug": "labormedizin", "name": "Labormedizin"},
+    # Reha / Schmerz / Schlaf
     {"slug": "rehabilitation", "name": "Rehabilitation"},
     {"slug": "sportmedizin", "name": "Sportmedizin"},
     {"slug": "schlafmedizin", "name": "Schlafmedizin"},
     {"slug": "schmerzmedizin", "name": "Schmerzmedizin"},
+    # Ernährung / Naturheilkunde
     {"slug": "ernaehrungsmedizin", "name": "Ernährungsmedizin"},
     {"slug": "osteopathie", "name": "Osteopathie"},
-    {"slug": "logopaedie", "name": "Logopädie"},
-    {"slug": "ergotherapie", "name": "Ergotherapie"},
-    {"slug": "physiotherapie", "name": "Physiotherapie"},
     {"slug": "heilpraktiker", "name": "Heilpraktiker"},
     {"slug": "homoeopathie", "name": "Homöopathie"},
     {"slug": "naturheilkunde", "name": "Naturheilkunde"},
     {"slug": "akupunktur", "name": "Akupunktur"},
+    # Therapie / Logopädie
+    {"slug": "logopaedie", "name": "Logopädie"},
+    {"slug": "ergotherapie", "name": "Ergotherapie"},
+    {"slug": "physiotherapie", "name": "Physiotherapie"},
+    # Sonstige
     {"slug": "sexualmedizin", "name": "Sexualmedizin"},
     {"slug": "geriatrie", "name": "Geriatrie"},
     {"slug": "palliativmedizin", "name": "Palliativmedizin"},
@@ -66,18 +89,20 @@ SPECIALITIES: list[dict[str, str]] = [
     {"slug": "umweltmedizin", "name": "Umweltmedizin"},
     {"slug": "flugmedizin", "name": "Flugmedizin"},
     {"slug": "tauchmedizin", "name": "Tauchmedizin"},
-    {"slug": "suchtmedizin", "name": "Suchtmedizin"},
-    {"slug": "psychosomatik", "name": "Psychosomatik"},
 ]
 
 _SLUG_TO_NAME: dict[str, str] = {s["slug"]: s["name"] for s in SPECIALITIES}
 _NAME_TO_SLUG: dict[str, str] = {
-    s["name"].lower(): s["slug"] for s in SPECIALITIES
+    s["name"].split(" (")[0].strip().lower(): s["slug"] for s in SPECIALITIES
 }
-# Auch Klarnamen ohne "Synonym"-Zusatz aufnehmen.
+# Auch den Klarnamen hinter dem Klammerzusatz auf den Slug mappen,
+# damit "Allgemeinmedizin" und "Hausarzt" gleichermaßen funktionieren.
 for s in SPECIALITIES:
-    base = s["name"].split(" (")[0].strip().lower()
-    _NAME_TO_SLUG.setdefault(base, s["slug"])
+    name = s["name"]
+    if "(" in name:
+        alias = name.split("(")[1].rstrip(")").split(" für ")[0].strip().lower()
+        if alias:
+            _NAME_TO_SLUG.setdefault(alias, s["slug"])
 
 
 def resolve_speciality(value: str) -> str | None:
@@ -88,8 +113,18 @@ def resolve_speciality(value: str) -> str | None:
     if not value:
         return None
     v = value.strip().lower()
+    if not v:
+        return None
     if v in _SLUG_TO_NAME:
         return v
     if v in _NAME_TO_SLUG:
         return _NAME_TO_SLUG[v]
     return None
+
+
+def list_specialities() -> list[dict[str, str]]:
+    """Gibt die Slug-Liste zurück (stabil sortiert nach Slug)."""
+    return sorted(SPECIALITIES, key=lambda s: s["slug"])
+
+
+__all__ = ["SPECIALITIES", "resolve_speciality", "list_specialities"]

@@ -6,24 +6,23 @@ Base: `https://www.doctolib.de` (Land: `country=de`).
 
 ## 1. Suchseite (Trefferliste)
 
-- `GET https://www.doctolib.de/<speciality-slug>/<city-slug>` → HTML (HTTP 200, ~1.6 MB)
+- `GET https://www.doctolib.de/<speciality-slug>/<city-slug>` → HTML (HTTP 200, ~1.6 MB initial / ~1.9 MB nach JS-Render).
 - Slug-Form: kleingeschrieben, Umlaute aufgelöst (`hautarzt`, `allgemeinmedizin`, `augenheilkunde`, …).
 - Stadt-Slug kleingeschrieben, Bindestriche statt Leerzeichen (`heilbronn`, `berlin`, `bad-homburg-07458`).
-- HTML enthält zwei `application/ld+json` Blöcke:
-  - `BreadcrumbList` (für Kontext)
-  - **`CollectionPage` mit `mainEntity: ItemList` – das ist die Quelle.** Jedes Element ist `Physician`/`MedicalOrganization` mit `name`, `address.{streetAddress,postalCode,addressLocality}`, `availableService`, `url` (Profil-Slug).
-- Anzahl Treffer pro Seite: Doctolib paginiert über `?page=N`, die ld+json zeigt die sichtbare Seite (20–30 Treffer, je nach Layout).
+- **Wichtig**: Das initiale HTML enthält nur die `BreadcrumbList` als `application/ld+json`. Die zweite `application/ld+json` mit `CollectionPage`/`ItemList` (alle Treffer) wird erst nach JS-Hydration des `patient-health-search`-Microfrontends sichtbar. → Wir laden die Seite mit Playwright headless und parsen dann den DOM.
+- Anzahl Treffer pro Seite: 20–30 in der ersten Page; weitere Pages werden per `?page=N` angesprochen (für Lauf A reicht Page 0).
+
+Der CollectionPage-`ItemList`-Eintrag enthält `name`, `address.{streetAddress,postalCode,addressLocality}`, `availableService.name`, `url` (Profil-Slug inkl. `?pid=practice-XXX`), `@type` (`Physician`/`MedicalOrganization`).
 
 Beispiel (verifiziert):
 ```
 curl -sS -A "Mozilla/5.0 ..." https://www.doctolib.de/hautarzt/berlin | grep -oE 'application/ld\+json[^<]{0,4000}'
 ```
 
-## 2. Profile / Detailseite
+## 2. Profile / Detailseite (Playwright noch nicht bestätigt)
 
-- `GET https://www.doctolib.de/<speciality-slug>/<city-slug>/<slug>` → HTML (HTTP 200)
-- HTML enthält `application/ld+json` `Physician` mit `name`, `legalName`, `image`, `address.{streetAddress,postalCode,addressLocality,name (Praxisname)}`, `availableService[]` (Besuchsgründe/visit motives), `telephone`, `openingHours`.
-- Ebenfalls `BreadcrumbList`.
+- `GET https://www.doctolib.de/<speciality-slug>/<city-slug>/<slug>` → HTML (HTTP 200) bei `requests`-Zugriff.
+- HTML enthält (laut `curl`-Probe) bereits zwei `application/ld+json` (`BreadcrumbList` + `Physician`/`MedicalOrganization`). Das heißt: `show` kann in Lauf B wieder ohne Playwright implementiert werden, **wenn** die Profile-Seite nicht auch noch zusätzliche Microfrontend-Daten braucht (zu prüfen in Lauf B).
 
 ## 3. Verfügbarkeiten (Slots)
 
@@ -37,11 +36,10 @@ curl -sS -A "Mozilla/5.0 ..." https://www.doctolib.de/hautarzt/berlin | grep -oE
   - `telehealth=false`, `limit=5` (mehr ist ok)
 - Die IDs (`visit_miat-id`, `agenda-ids`, `practice-ids`) müssen aus dem Profile-JSON-Bundle kommen, das Doctolib per microfrontend-Loader nachlädt (siehe Schritt 4). **In Lauf A noch nicht hart gelöst** – Vorbereitung in Lauf B.
 
-## 4. Patient-Health-Search API (für search/filter)
+## 4. Patient-Health-Search API (für search/filter) – NICHT genutzt
 
 - `GET https://www.doctolib.de/patient-health-search/api/v1/filters?keyword=hautarzt&country=de` → Liste der möglichen Filter (availabilitiesBefore, insuranceSector, telehealth, languages). Liefert **keine** speciality/place-ID-Mappings.
-- `GET https://www.doctolib.de/patient-health-search/api/v1/hcp/search?page=0` → Status 206 (Partial Content), wird vom Microfrontend gefetcht. Body ist binär codiert und nicht trivial parsbar.
-- **Empfehlung: HTML der Suchseite parsen (ld+json). Das deckt unseren `search`-Befehl vollständig.**
+- `POST https://www.doctolib.de/patient-health-search/api/v1/hcp/search?page=0` (Status 206) → erwartet eine JSON-Payload mit `keyword` + `location.place` (Google-Places-Format mit `id`, `placeId`, `slug`, `zipcodes[]`, `gpsPoint`, `viewport`, `administrativeAreaLevel1` …) + CSRF-Token. Das Synthetisieren ist aufwendig und fragil, daher gehen wir den Render-Weg über Playwright und parsen das `ld+json`.
 
 ## 5. Slug-Lookup (Sonderfall)
 

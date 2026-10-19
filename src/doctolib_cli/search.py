@@ -205,7 +205,11 @@ def _is_access_blocked(html: str) -> bool:
         needle in low
         for needle in (
             "kein roboter",
+            "nicht von einem roboter",
+            "roboter stammen",
             "__cf_chl",
+            "cf-chl",
+            "challenge-platform",
             "wir müssen kurz überprüfen",
             "support-code:",
         )

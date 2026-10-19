@@ -133,12 +133,17 @@ def _bookable_configs(info: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def _match_motive(motive_input: str | None,
+def _match_motive(motive_input: str | int | None,
                   configs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Filtert Configs nach ``--motive ID|TEXT``."""
-    if not motive_input:
+    """Filtert Configs nach ``--motive ID|TEXT``.
+
+    ``motive_input`` ist str oder int. Substring-Match ist case-insensitive.
+    """
+    if motive_input is None or motive_input == "":
         return configs
-    s = motive_input.strip()
+    s = str(motive_input).strip()
+    if not s:
+        return configs
     # 1) Versuch: ID (numerisch)
     if s.isdigit():
         wanted = int(s)

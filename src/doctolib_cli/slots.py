@@ -322,10 +322,21 @@ def slots_for_profile(slug_or_url: str, *,
     # Doctolib begrenzt ``limit`` auf 7 Tage pro Request. Für ``days>7``
     # paginieren wir mit fortlaufendem ``start_date_time`` (Datum nach
     # dem letzten Tag des vorherigen Calls).
+    #
+    # Außerdem kappen wir die Anzahl der (visit_motive, agenda, practice)
+    # -Tupel, die wir tatsächlich abfragen – Doctolib antwortet für
+    # jedes Tupel einzeln, und Profiles mit 4 Praxen × N agendas × M
+    # motives kombinieren schnell auf tausende Calls. Pragmatisches
+    # Maximum: 8 Tupel pro Invocation.
+    MAX_TUPLES = 8
     all_slots: list[dict[str, Any]] = []
     last: dict[str, Any] | None = None
     next_slot: str | None = None
-    for cfg in chosen:
+    truncated = False
+    for cfg in chosen[:MAX_TUPLES]:
+        if len(chosen) > MAX_TUPLES and cfg is chosen[MAX_TUPLES - 1]:
+            # nur einmal truncated setzen
+            truncated = True
         remaining = n_days
         cursor_dt = start_dt
         while remaining > 0:
@@ -409,6 +420,7 @@ def slots_for_profile(slug_or_url: str, *,
         "total": len(all_slots),
         "next_slot": next_slot,
         "reason": _reason_text(last) if last else None,
+        "truncated": truncated,
     }
     return 0, payload
 

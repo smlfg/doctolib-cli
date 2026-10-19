@@ -121,11 +121,28 @@ def cmd_search(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-    return _not_implemented("show", args.json)
+    from . import show as show_mod
+    code, payload = show_mod.show_profile(args.slug_or_url)
+    if code != 0:
+        return fail(payload["error"]["code"], payload["error"]["message"],
+                    as_json=args.json, kind=payload["error"]["kind"])
+    return emit(payload, args.json)
 
 
 def cmd_slots(args: argparse.Namespace) -> int:
-    return _not_implemented("slots", args.json)
+    from . import slots as slots_mod
+    code, payload = slots_mod.slots_for_profile(
+        args.slug_or_url,
+        motive=args.motive,
+        days=args.days,
+    )
+    if code != 0:
+        err = payload["error"]
+        return fail(err["code"], err["message"],
+                    as_json=args.json, kind=err["kind"],
+                    extra={k: v for k, v in err.items()
+                           if k not in ("code", "kind", "message")})
+    return emit(payload, args.json)
 
 
 def cmd_specialities(args: argparse.Namespace) -> int:

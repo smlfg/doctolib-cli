@@ -36,6 +36,15 @@ LOG = logging.getLogger("doctolib_cli.watch")
 WATCH_VERSION = 1
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+# Lokale Imports (für Tests monkeypatch-fähig als Modul-Attribut):
+from .slots import _resolve_insurance  # noqa: E402
+
+
+def _slots_proxy(*args: Any, **kwargs: Any) -> tuple[int, dict[str, Any]]:
+    """Module-Attribut für monkeypatch in Tests. Default = slots.slots_for_profile."""
+    from .slots import slots_for_profile
+    return slots_for_profile(*args, **kwargs)
+
 
 def config_dir() -> Path:
     """Gibt das Doctolib-CLI-Config-Verzeichnis zurück (anlegend)."""
@@ -258,8 +267,6 @@ def check_watches(*, days: int = 14, json_only: bool = False,
     Fehler gemeldet; das Gesamtergebnis ist exit 0 wenn mindestens ein
     Watch geprüft wurde, sonst 4 (z.B. wenn keine Watches existieren).
     """
-    from .slots import slots_for_profile, _resolve_insurance  # lokaler Import
-
     path = path or watch_file()
     try:
         data = _read_watch_file(path)
@@ -284,7 +291,7 @@ def check_watches(*, days: int = 14, json_only: bool = False,
         ins = _resolve_insurance(w.get("insurance") or "any")
         before_iso = w.get("before")
         try:
-            code, payload = slots_for_profile(
+            code, payload = _slots_proxy(
                 str(profile), motive=motive, days=days, insurance=ins)
         except Exception as exc:  # noqa: BLE001
             results.append({"id": wid, "profile": profile,

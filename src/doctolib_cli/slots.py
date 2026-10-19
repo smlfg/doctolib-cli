@@ -368,8 +368,11 @@ def slots_for_profile(slug_or_url: str, *,
                 "available_motives": list_motives(info),
             }}
     else:
-        chosen = _pick_default(configs_for_motive, insurance=(
-            "public" if ins == "any" else ins))
+        if ins == "any":
+            # ``any`` ⇒ alle Tupel (gedeckelt durch MAX_TUPLES).
+            chosen = list(configs_for_motive)
+        else:
+            chosen = _pick_default(configs_for_motive, insurance=ins)
 
     start_dt = _now_iso()
     places_index = _build_places_index(info)

@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "doctolib-cli"
+version = "0.1.0"
+description = "doctolib – Agent-CLI für doctolib.de: Suche (Fach+Ort), Profil, Verfügbarkeiten, Watch, Book-Stop. Live, MIT, ohne Login-Pflicht."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "smlfg"}]
+keywords = [
+    "doctolib",
+    "doctolib-cli",
+    "arzt",
+    "termin",
+    "verfügbarkeit",
+    "agent",
+    "scraper",
+]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+doctolib = "doctolib_cli.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/smlfg/doctolib-cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

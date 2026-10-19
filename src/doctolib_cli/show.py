@@ -244,12 +244,18 @@ def show_profile(slug_or_url: str,
     except HttpError as exc:
         return exc.code, {"error": {"kind": exc.kind, "code": exc.code,
                                     "message": str(exc)}}
-    if status == 404:
+    if status in (404, 410):
         return 4, {"error": {"kind": "parse", "code": 4,
-                             "message": f"Doctolib kennt dieses Profil nicht (HTTP 404): {slug}"}}
+                             "message": (f"Doctolib kennt dieses Profil nicht "
+                                         f"(HTTP {status}): {slug}")}}
     if status >= 400:
         return 3, {"error": {"kind": "network", "code": 3,
                              "message": f"Doctolib HTTP {status} für {slug}"}}
+    if status >= 300:
+        # Doctolib redirected (z. B. /hautarzt/... → /arzt/...); ohne
+        # playwright kennen wir das Ziel nicht. Wir nehmen, was kam.
+        LOG.debug("Profil-HTML lieferte HTTP %d für %s", status, slug)
+
 
     ld = _load_ld_json_profile(html)
     if not ld:

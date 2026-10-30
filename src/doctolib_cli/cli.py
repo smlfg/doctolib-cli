@@ -44,6 +44,53 @@ def _add_json_flag(p: argparse.ArgumentParser) -> None:
                    help="Genau ein JSON-Objekt auf stdout ausgeben.")
 
 
+def _is_tty() -> bool:
+    """True nur bei echtem Terminal auf stdout (Tests patchen das)."""
+    try:
+        return bool(sys.stdout.isatty())
+    except (AttributeError, ValueError):
+        return False
+
+
+def _stdin_tty() -> bool:
+    try:
+        return bool(sys.stdin.isatty())
+    except (AttributeError, ValueError):
+        return False
+
+
+def _human_mode(args: argparse.Namespace) -> bool:
+    """Lesbare Textausgabe: nur TTY und kein --json."""
+    return not getattr(args, "json", False) and _is_tty()
+
+
+def _candidates_to_stderr(candidates: Any) -> None:
+    if not isinstance(candidates, list) or not candidates:
+        return
+    sys.stderr.write("Treffer für die Auswahl:\n")
+    for i, rec in enumerate(candidates, 1):
+        if not isinstance(rec, dict):
+            continue
+        name = rec.get("name") or "?"
+        slug = rec.get("slug") or ""
+        sys.stderr.write(f"[{i}] {name}"
+                         + (f" | slug: {slug}" if slug else "") + "\n")
+
+
+def _fail_payload(payload: dict[str, Any], *, as_json: bool) -> int:
+    """Fehlerobjekt einheitlich ausgeben (inkl. hint/candidates)."""
+    err = payload.get("error") or {}
+    extra = {k: v for k, v in err.items()
+             if k not in ("code", "kind", "message")}
+    if not as_json:
+        _candidates_to_stderr(extra.get("candidates"))
+        if extra.get("hint"):
+            sys.stderr.write(f"Hinweis: {extra['hint']}\n")
+    return fail(int(err.get("code", 1)), str(err.get("message", "Fehler")),
+                as_json=as_json, kind=str(err.get("kind", "error")),
+                extra=extra or None)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="doctolib",
@@ -114,28 +161,33 @@ def _not_implemented(cmd: str, as_json: bool) -> int:
 
 def cmd_search(args: argparse.Namespace) -> int:
     from . import search as search_mod
+    from .output import format_search
     code, payload = search_mod.search_speciality_location(
         args.speciality, args.location, limit=args.limit,
     )
-    return emit(payload, args.json) if code == 0 else fail(
-        payload["error"]["code"],
-        payload["error"]["message"],
-        as_json=args.json,
-        kind=payload["error"]["kind"],
-    )
+    if code != 0:
+        return _fail_payload(payload, as_json=args.json)
+    if _human_mode(args):
+        sys.stdout.write(format_search(payload) + "\n")
+        return 0
+    return emit(payload, args.json)
 
 
 def cmd_show(args: argparse.Namespace) -> int:
     from . import show as show_mod
+    from .output import format_show
     code, payload = show_mod.show_profile(args.slug_or_url)
     if code != 0:
-        return fail(payload["error"]["code"], payload["error"]["message"],
-                    as_json=args.json, kind=payload["error"]["kind"])
+        return _fail_payload(payload, as_json=args.json)
+    if _human_mode(args):
+        sys.stdout.write(format_show(payload) + "\n")
+        return 0
     return emit(payload, args.json)
 
 
 def cmd_slots(args: argparse.Namespace) -> int:
     from . import slots as slots_mod
+    from .output import format_slots
     code, payload = slots_mod.slots_for_profile(
         args.slug_or_url,
         motive=args.motive,
@@ -143,11 +195,10 @@ def cmd_slots(args: argparse.Namespace) -> int:
         insurance=args.insurance,
     )
     if code != 0:
-        err = payload["error"]
-        return fail(err["code"], err["message"],
-                    as_json=args.json, kind=err["kind"],
-                    extra={k: v for k, v in err.items()
-                           if k not in ("code", "kind", "message")})
+        return _fail_payload(payload, as_json=args.json)
+    if _human_mode(args):
+        sys.stdout.write(format_slots(payload) + "\n")
+        return 0
     return emit(payload, args.json)
 
 
@@ -285,6 +336,9 @@ def main(argv: list[str] | None = None) -> int:
         handler = HANDLERS[args.cmd]
     try:
         return handler(args)
+    except KeyboardInterrupt:
+        return fail(1, "Abgebrochen (Strg+C).",
+                    as_json=getattr(args, "json", False), kind="usage")
     except Exception as exc:  # pragma: no cover – Schutznetz
         LOG.exception("Unerwarteter Fehler")
         return fail(1, f"interner Fehler: {exc.__class__.__name__}",

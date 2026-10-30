@@ -108,12 +108,35 @@ def build_parser() -> argparse.ArgumentParser:
                      help="1..50 (default 20).")
     _add_json_flag(p_s)
 
-    p_sh = sub.add_parser("show", help="Profil/Detail zu einem Slug oder URL.")
-    p_sh.add_argument("slug_or_url")
+    p_sh = sub.add_parser(
+        "show", help="Profil/Detail zu Slug, URL oder Suchbegriff.",
+        description=("Profil per Slug/URL laden. Ohne \"/\" wird das "
+                     "Argument als Suche \"FACH ORT\" verstanden; im "
+                     "Terminal folgt eine nummerierte Auswahl, sonst "
+                     "--pick N nutzen."),
+    )
+    p_sh.add_argument("query", nargs="*",
+                      help="Slug/URL oder Suchbegriff (z. B. hautarzt heilbronn).")
+    p_sh.add_argument("--search", default=None, metavar="FACH ORT",
+                      help="Suche erzwingen, z. B. --search \"hautarzt heilbronn\".")
+    p_sh.add_argument("--pick", type=int, default=None, metavar="N",
+                      help="Treffer N aus der Suche ohne Prompt wählen.")
     _add_json_flag(p_sh)
 
-    p_sl = sub.add_parser("slots", help="Freie Termine für ein Profil.")
-    p_sl.add_argument("slug_or_url")
+    p_sl = sub.add_parser(
+        "slots", help="Freie Termine per Slug, URL oder Suchbegriff.",
+        description=("Freie Termine für ein Profil. Ein Argument mit \"/\" "
+                     "oder eine Doctolib-URL wird direkt genutzt. Alles "
+                     "andere ist eine Suche \"FACH ORT\": im Terminal "
+                     "erscheint eine nummerierte Auswahl, in Pipes/Agenten "
+                     "bitte --pick N verwenden."),
+    )
+    p_sl.add_argument("query", nargs="*",
+                      help="Slug/URL oder Suchbegriff (z. B. hautarzt heilbronn).")
+    p_sl.add_argument("--search", default=None, metavar="FACH ORT",
+                      help="Suche erzwingen, z. B. --search \"hautarzt heilbronn\".")
+    p_sl.add_argument("--pick", type=int, default=None, metavar="N",
+                      help="Treffer N aus der Suche ohne Prompt wählen.")
     p_sl.add_argument("--motive", default=None,
                       help="Visit-Motive-ID oder -Text (optional).")
     p_sl.add_argument("--days", type=int, default=7, help="1..30 (default 7).")
@@ -174,22 +197,44 @@ def cmd_search(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
+    from . import resolve as resolve_mod
     from . import show as show_mod
     from .output import format_show
-    code, payload = show_mod.show_profile(args.slug_or_url)
+
+    code, resolved = resolve_mod.resolve_profile(
+        args.query, search=args.search, pick=args.pick,
+        command="show", interactive=_human_mode(args) and _stdin_tty(),
+    )
+    if code != 0:
+        return _fail_payload(resolved, as_json=args.json)
+    slug = resolved["slug"]
+    code, payload = show_mod.show_profile(slug)
     if code != 0:
         return _fail_payload(payload, as_json=args.json)
     if _human_mode(args):
+        chosen = resolved.get("result")
+        if chosen:
+            sys.stdout.write(f"Gewählt: {chosen.get('name')} "
+                             f"({slug})\n\n")
         sys.stdout.write(format_show(payload) + "\n")
         return 0
     return emit(payload, args.json)
 
 
 def cmd_slots(args: argparse.Namespace) -> int:
+    from . import resolve as resolve_mod
     from . import slots as slots_mod
     from .output import format_slots
+
+    code, resolved = resolve_mod.resolve_profile(
+        args.query, search=args.search, pick=args.pick,
+        command="slots", interactive=_human_mode(args) and _stdin_tty(),
+    )
+    if code != 0:
+        return _fail_payload(resolved, as_json=args.json)
+    slug = resolved["slug"]
     code, payload = slots_mod.slots_for_profile(
-        args.slug_or_url,
+        slug,
         motive=args.motive,
         days=args.days,
         insurance=args.insurance,
@@ -197,6 +242,10 @@ def cmd_slots(args: argparse.Namespace) -> int:
     if code != 0:
         return _fail_payload(payload, as_json=args.json)
     if _human_mode(args):
+        chosen = resolved.get("result")
+        if chosen:
+            sys.stdout.write(f"Gewählt: {chosen.get('name')} "
+                             f"({slug})\n\n")
         sys.stdout.write(format_slots(payload) + "\n")
         return 0
     return emit(payload, args.json)

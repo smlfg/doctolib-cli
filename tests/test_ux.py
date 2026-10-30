@@ -1,11 +1,16 @@
-"""Tests für menschenlesbare Ausgabe im Terminal."""
+"""Tests für menschenlesbare Ausgabe und Suche statt Slug."""
 
 from __future__ import annotations
 
+import io
 import json
+import sys
+
+import pytest
 
 from doctolib_cli import cli
 from doctolib_cli.output import format_search, format_show, format_slots
+from doctolib_cli.resolve import _parse_search_query, resolve_profile
 
 from .fixtures.builders import (
     availabilities_json,
@@ -111,32 +116,146 @@ def test_search_pipe_keeps_json_without_flag(monkeypatch, capsys) -> None:
     assert data["count"] == 1
 
 
-# ----- CLI: show/slots lesbar --------------------------------------------
+# ----- Query statt Slug ---------------------------------------------------
 
-def test_show_terminal_output_is_text(monkeypatch, http, capsys) -> None:
-    monkeypatch.setattr(cli, "_is_tty", lambda: True)
-    http.route(contains="/test-profile", text=profile_html(
-        name="Dr. Maria Test", slug="hautarzt/berlin/test-profile"))
-    http.route(contains="info.json", json_data=info_json(
-        profile_slug="test-profile"))
-    code = cli.main(["show", "hautarzt/berlin/test-profile"])
+def test_parse_search_query_uses_longest_speciality_prefix() -> None:
+    assert _parse_search_query("hautarzt heilbronn") == (
+        "hautarzt", "heilbronn")
+    assert _parse_search_query("plastische chirurgie bad homburg") == (
+        "plastische chirurgie", "bad homburg")
+    assert _parse_search_query("hautarzt") is None
+
+
+def test_resolve_profile_keeps_slug_untouched(monkeypatch) -> None:
+    import doctolib_cli.resolve as resolve_mod
+    monkeypatch.setattr(resolve_mod, "_search_proxy", lambda *a, **k: (
+        0, _search_payload()))
+    code, payload = resolve_profile(["hautarzt/berlin/dr-x"])
     assert code == 0
-    out = capsys.readouterr().out
-    assert "Dr. Maria Test (Physician)" in out
-    assert "Slug: hautarzt/berlin/test-profile" in out
-    assert not out.lstrip().startswith("{")
+    assert payload["slug"] == "hautarzt/berlin/dr-x"
+    assert payload["from_search"] is False
 
 
-def test_slots_terminal_output_is_text(monkeypatch, http, capsys) -> None:
-    monkeypatch.setattr(cli, "_is_tty", lambda: True)
+def test_slots_with_search_and_pick(monkeypatch, http, capsys) -> None:
+    html = search_html_berlin([
+        {"name": "Dr. med. X",
+         "url": "/hautarzt/heilbronn/dr-x?pid=practice-635395"},
+    ], city_name="Heilbronn")
+    import doctolib_cli.search as search_mod
+    monkeypatch.setattr(search_mod, "_fetch_search_html", lambda url: html)
     http.route(contains="info.json", json_data=info_json(
-        profile_slug="test-profile"))
+        profile_slug="dr-x", practice_id=635395))
     http.route(contains="availabilities.json",
                json_data=availabilities_json())
-    code = cli.main(["slots", "hautarzt/berlin/test-profile",
+
+    code = cli.main(["slots", "hautarzt", "heilbronn",
+                      "--pick", "1", "--insurance", "public", "--json"])
+    assert code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["profile"]["slug"] == "hautarzt/heilbronn/dr-x"
+    assert data["total"] >= 1
+
+
+def test_slots_search_without_tty_exits_usage_with_candidates(
+        monkeypatch, capsys) -> None:
+    html = search_html_berlin([
+        {"name": "Dr. med. X", "url": "/hautarzt/heilbronn/dr-x"},
+    ], city_name="Heilbronn")
+    import doctolib_cli.search as search_mod
+    monkeypatch.setattr(search_mod, "_fetch_search_html", lambda url: html)
+    monkeypatch.setattr(cli, "_is_tty", lambda: False)
+    monkeypatch.setattr(cli, "_stdin_tty", lambda: False)
+
+    code = cli.main(["slots", "hautarzt", "heilbronn", "--json"])
+    assert code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["error"]["kind"] == "usage"
+    assert data["error"]["candidates"][0]["slug"] == \
+        "hautarzt/heilbronn/dr-x"
+    assert "--pick" in data["error"]["hint"]
+
+
+def test_slots_interactive_prompt_selects_number(monkeypatch, http,
+                                                 capsys) -> None:
+    html = search_html_berlin([
+        {"name": "Dr. med. X",
+         "url": "/hautarzt/heilbronn/dr-x?pid=practice-635395"},
+    ], city_name="Heilbronn")
+    import doctolib_cli.search as search_mod
+    monkeypatch.setattr(search_mod, "_fetch_search_html", lambda url: html)
+    monkeypatch.setattr(cli, "_is_tty", lambda: True)
+    monkeypatch.setattr(cli, "_stdin_tty", lambda: True)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("1\n"))
+    http.route(contains="info.json", json_data=info_json(
+        profile_slug="dr-x", practice_id=635395))
+    http.route(contains="availabilities.json",
+               json_data=availabilities_json())
+
+    code = cli.main(["slots", "hautarzt", "heilbronn",
                      "--insurance", "public"])
     assert code == 0
     out = capsys.readouterr().out
-    assert "Freie Termine – Praxis Mitte" in out
-    assert "Di 20.10.2026: 09:00, 10:00, 11:00" in out
-    assert not out.lstrip().startswith("{")
+    assert "Nummer wählen [1-1]" in out
+    assert "Gewählt: Dr. med. X" in out
+    assert "Di 20.10.2026: 09:00" in out
+
+
+def test_slots_interactive_bad_choice_is_usage(monkeypatch, capsys) -> None:
+    html = search_html_berlin([
+        {"name": "Dr. med. X", "url": "/hautarzt/heilbronn/dr-x"},
+    ], city_name="Heilbronn")
+    import doctolib_cli.search as search_mod
+    monkeypatch.setattr(search_mod, "_fetch_search_html", lambda url: html)
+    monkeypatch.setattr(cli, "_is_tty", lambda: True)
+    monkeypatch.setattr(cli, "_stdin_tty", lambda: True)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("99\n"))
+
+    code = cli.main(["slots", "hautarzt", "heilbronn"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "[usage]" in err
+    assert "Treffer für die Auswahl" in err
+
+
+def test_show_with_search_and_pick(monkeypatch, http, capsys) -> None:
+    html = search_html_berlin([
+        {"name": "Dr. med. X", "url": "/hautarzt/heilbronn/dr-x"},
+    ], city_name="Heilbronn")
+    import doctolib_cli.search as search_mod
+    monkeypatch.setattr(search_mod, "_fetch_search_html", lambda url: html)
+    http.route(contains="/dr-x", text=profile_html(
+        name="Dr. med. X", slug="hautarzt/heilbronn/dr-x"))
+    http.route(contains="info.json", json_data=info_json(
+        profile_slug="dr-x"))
+
+    code = cli.main(["show", "hautarzt", "heilbronn", "--pick", "1",
+                     "--json"])
+    assert code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["name"] == "Dr. med. X"
+    assert data["slug"] == "hautarzt/heilbronn/dr-x"
+
+
+def test_show_pick_out_of_range(monkeypatch, capsys) -> None:
+    html = search_html_berlin([
+        {"name": "Dr. med. X", "url": "/hautarzt/heilbronn/dr-x"},
+    ], city_name="Heilbronn")
+    import doctolib_cli.search as search_mod
+    monkeypatch.setattr(search_mod, "_fetch_search_html", lambda url: html)
+
+    code = cli.main(["show", "hautarzt", "heilbronn", "--pick", "5",
+                     "--json"])
+    assert code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["error"]["kind"] == "usage"
+    assert data["error"]["candidates"]
+
+
+def test_help_documents_search_by_name(capsys) -> None:
+    for cmd in ("slots", "show"):
+        code = cli.main([cmd, "--help"])
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "--search" in out
+        assert "--pick" in out
+        assert "hautarzt heilbronn" in out

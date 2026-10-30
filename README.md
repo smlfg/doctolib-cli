@@ -1,5 +1,19 @@
 # doctolib-cli
 
+## Schnellstart
+
+```bash
+pipx install git+https://github.com/smlfg/doctolib-cli   # empfohlen, landet im PATH
+# Alternative: pip install --user git+https://github.com/smlfg/doctolib-cli
+playwright install chromium
+doctolib search hautarzt heilbronn
+doctolib slots hautarzt heilbronn
+doctolib slots hautarzt/berlin/kosar-hedayat --days 14
+```
+
+Wenn der Befehl danach nicht gefunden wird: `pipx` nutzen oder das
+`bin`-Verzeichnis des venv in den `PATH` aufnehmen.
+
 CLI für Agenten: Doctolib-Ärzte, Profile und **live freie Termine**
 suchen – komplett **read-only**, ohne Login, ohne Buchen.
 
@@ -32,33 +46,45 @@ doctolib search hautarzt berlin --limit 3
 doctolib search zahnarzt heilbronn --limit 3 --json
 ```
 
-`--limit` ist 1..50, Default 20. Ausgabe ist eine Tabelle oder
-JSON-Objekt (`results[]`, `count`, `query`).
+`--limit` ist 1..50, Default 20. Im Terminal erscheint eine nummerierte
+Liste mit Adresse und Slug; bei Pipe/Agent (oder mit `--json`) bleibt
+das JSON-Objekt (`results[]`, `count`, `query`) unverändert.
 
-### `doctolib show PROFILE_SLUG_OR_URL [--json]`
+### `doctolib show SLUG|URL|FACH ORT [--search ...] [--pick N] [--json]`
 
 Profilseite (HTML) + Online-Booking-Info (`info.json`) zu einem
 Slug wie `hautarzt/berlin/kosar-hedayat` oder einer vollen Doctolib-URL.
 
 ```bash
-doctolib show hautarzt/berlin/kosar-hedayat --json
+doctolib show hautarzt/berlin/kosar-hedayat
+doctolib show hautarzt heilbronn --pick 1        # Suche + Auswahl
 ```
+
+Im Terminal erscheint eine lesbare Zusammenfassung; bei Pipe/Agent
+(oder mit `--json`) bleibt das JSON-Objekt unverändert.
 
 Felder: `name`, `type` (`Physician` / `MedicalOrganization`), `address`,
 `addresses[]`, `image`, `motive[]` (aus info.json), `speciality`,
 `opening_hours[]`, `slug`, `practice_id`, `practice_ids[]`, `url`.
 
-### `doctolib slots PROFILE [--motive ID|TEXT] [--days N] [--insurance X] [--json]`
+### `doctolib slots SLUG|URL|FACH ORT [--search ...] [--pick N] [--motive ID|TEXT] [--days N] [--insurance X] [--json]`
 
 Freie Termine live aus
 `https://www.doctolib.de/search/availabilities.json`.
 
 ```bash
 doctolib slots hautarzt/berlin/kosar-hedayat --days 14 --insurance public
-doctolib slots hautarzt/berlin/kosar-hedayat --motive 4711 --json
-doctolib slots hautarzt/berlin/kosar-hedayat --insurance any --json
+doctolib slots hautarzt heilbronn              # Suche + Auswahl im Terminal
+doctolib slots hautarzt heilbronn --pick 1      # ohne Prompt (Pipe/Agent)
+doctolib slots --search "hautarzt heilbronn" --pick 2 --json
+doctolib slots hautarzt/berlin/kosar-hedayat --motive "Hautkrebsvorsorge"
 ```
 
+* Ein Argument mit `/` (oder eine Doctolib-URL) ist immer ein Profil-Slug.
+  Alles andere wird als Suche `FACH ORT` verstanden. Im Terminal kommt
+  eine nummerierte Trefferliste mit „Nummer wählen“; ohne TTY (Pipe/Agent)
+  endet der Aufruf mit Exit 1 und der Trefferliste im Fehlerobjekt – dann
+  `--pick N` oder direkt einen Slug verwenden.
 * `--days`: 1..30, Default 7. Doctolib liefert pro Call max. 7 Tage,
   bei `--days > 7` paginieren wir mit fortlaufendem `start_date_time`.
 * `--insurance`: `public` / `private` / `any` (Default `any`).

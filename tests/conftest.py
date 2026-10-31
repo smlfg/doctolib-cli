@@ -11,6 +11,9 @@ from typing import Any
 
 import pytest
 
+# Die UX-Gate-Skripte sind Werkzeuge, keine pytest-Tests.
+collect_ignore = ["harness"]
+
 # Damit ``import doctolib_cli`` in Tests funktioniert ohne Install.
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))

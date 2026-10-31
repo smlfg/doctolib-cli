@@ -30,6 +30,97 @@ from .fixtures.builders import (
 
 # ----- search -------------------------------------------------------------
 
+def _install_fake_playwright(
+        monkeypatch: pytest.MonkeyPatch, *, install_returncode: int = 0
+) -> tuple[list[dict[str, Any]], list[tuple[list[str], dict[str, Any]]]]:
+    """Ersetzt playwright.sync_api und subprocess.run durch Fakes."""
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    import doctolib_cli.search as search_mod
+
+    launches: list[dict[str, Any]] = []
+    page = SimpleNamespace(
+        goto=lambda url, **kwargs: SimpleNamespace(status=200),
+        wait_for_selector=lambda *args, **kwargs: None,
+        content=lambda: "<html>ok</html>",
+    )
+    browser = SimpleNamespace(
+        new_context=lambda **kwargs: SimpleNamespace(new_page=lambda: page),
+        close=lambda: None,
+    )
+
+    class FakeChromium:
+        def launch(self, **kwargs: Any) -> Any:
+            launches.append(kwargs)
+            if len(launches) == 1:
+                raise RuntimeError("Executable doesn't exist at /x/chromium")
+            return browser
+
+    class FakePlaywright:
+        chromium = FakeChromium()
+
+        def __enter__(self) -> "FakePlaywright":
+            return self
+
+        def __exit__(self, *args: Any) -> bool:
+            return False
+
+    fake_api = ModuleType("playwright.sync_api")
+    fake_api.sync_playwright = lambda: FakePlaywright()  # type: ignore[attr-defined]
+    fake_pkg = ModuleType("playwright")
+    fake_pkg.sync_api = fake_api  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "playwright", fake_pkg)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_api)
+
+    calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> Any:
+        calls.append((cmd, kwargs))
+        return SimpleNamespace(returncode=install_returncode)
+
+    monkeypatch.setattr(search_mod.subprocess, "run", fake_run)
+    return launches, calls
+
+
+def test_search_fetch_installs_chromium_once(
+        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    import sys
+
+    import doctolib_cli.search as search_mod
+
+    launches, calls = _install_fake_playwright(monkeypatch)
+
+    assert search_mod._fetch_search_html("https://example.test/x") == "<html>ok</html>"
+    assert len(launches) == 2
+    assert len(calls) == 1
+    assert calls[0][0] == [sys.executable, "-m", "playwright", "install",
+                           "chromium-headless-shell"]
+    assert calls[0][1]["stdout"] is sys.stderr
+    assert calls[0][1]["stderr"] is sys.stderr
+    err = capsys.readouterr().err
+    assert err.count("Chromium fehlt – wird einmalig installiert "
+                     "(ca. 1 Minute) …") == 1
+
+
+def test_search_fetch_install_failure_raises_plain_error(
+        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    import sys
+
+    import doctolib_cli.search as search_mod
+
+    _install_fake_playwright(monkeypatch, install_returncode=1)
+
+    with pytest.raises(search_mod._SearchFetchError) as excinfo:
+        search_mod._fetch_search_html("https://example.test/x")
+    expected = ("Chromium fehlt. Einmalig ausführen: " + sys.executable
+                + " -m playwright install chromium")
+    assert excinfo.value.code == 3
+    assert excinfo.value.kind == "network"
+    assert str(excinfo.value) == expected
+    assert "Browser-Fehler" not in str(excinfo.value)
+
+
 def test_search_speciality_location_happy_path(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """Vollständiger Such-Flow mit gestubbtem Playwright."""

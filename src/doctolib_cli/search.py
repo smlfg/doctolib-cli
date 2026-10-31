@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import subprocess
+import sys
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlparse
@@ -382,9 +384,30 @@ def _fetch_search_html(url: str) -> str | None:
             "Installiere mit `pip install playwright && playwright install chromium`."
         ) from exc
 
+    missing_message = ("Chromium fehlt. Einmalig ausführen: "
+                       + sys.executable + " -m playwright install chromium")
+
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            try:
+                browser = p.chromium.launch(headless=True)
+            except Exception as exc:  # noqa: BLE001
+                if "Executable doesn't exist" not in str(exc):
+                    raise
+                print("Chromium fehlt – wird einmalig installiert "
+                      "(ca. 1 Minute) …", file=sys.stderr, flush=True)
+                install = subprocess.run(
+                    [sys.executable, "-m", "playwright", "install",
+                     "chromium-headless-shell"],
+                    check=False, stdout=sys.stderr, stderr=sys.stderr)
+                if install.returncode != 0:
+                    raise _SearchFetchError(3, "network",
+                                            missing_message) from exc
+                try:
+                    browser = p.chromium.launch(headless=True)
+                except Exception as retry_exc:  # noqa: BLE001
+                    raise _SearchFetchError(3, "network",
+                                            missing_message) from retry_exc
             try:
                 ctx = browser.new_context(
                     user_agent=("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "

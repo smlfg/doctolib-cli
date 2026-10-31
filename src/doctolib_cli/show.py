@@ -183,7 +183,7 @@ def _normalize_record(ld: dict[str, Any],
         pid_qs = ""
     profile_url = f"{base}/{profile_slug}{pid_qs}"
 
-    return {
+    record = {
         "name": ld.get("name"),
         "type": ld.get("@type") or "Unknown",
         "address": address,
@@ -199,6 +199,12 @@ def _normalize_record(ld: dict[str, Any],
         "practice_ids": practice_ids,
         "url": profile_url,
     }
+    # Telefon nur wenn wirklich vorhanden – JSON-Struktur bleibt sonst
+    # unverändert (kein künstliches "telephone": null).
+    telephone = str(ld.get("telephone") or "").strip()
+    if telephone:
+        record["telephone"] = telephone
+    return record
 
 
 def _cloudinary_url(value: Any) -> str | None:

@@ -7,6 +7,8 @@ from typing import Any
 
 _DE_WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
+MAX_TIMES_PER_LINE = 8
+
 
 def format_address(address: Any) -> str:
     """Formatiert ``street``/``postal_code``/``city`` als eine Zeile."""
@@ -21,10 +23,10 @@ def format_address(address: Any) -> str:
 
 def _format_date(value: str) -> str:
     try:
-        d = datetime.strptime(value, "%Y-%m-%d")
+        d = datetime.strptime(value[:10], "%Y-%m-%d")
     except (TypeError, ValueError):
         return str(value)
-    return f"{_DE_WEEKDAYS[d.weekday()]} {d.strftime('%d.%m.%Y')}"
+    return f"{_DE_WEEKDAYS[d.weekday()]} {d.day:02d}.{d.month:02d}."
 
 
 def _format_time(value: Any) -> str:
@@ -75,69 +77,56 @@ def format_search(payload: dict[str, Any], *, verbose: bool = False) -> str:
     return "\n".join(lines)
 
 
-def format_show(record: dict[str, Any]) -> str:
-    """Profil-Detail als kompakte, lesbare Blöcke."""
+def format_show(record: dict[str, Any], *, verbose: bool = False) -> str:
+    """Kompakte Profil-Ansicht.
+
+    Name, Fach, Adresse, Telefon (falls vorhanden), Online-Buchung ja/nein,
+    Link. Der Slug erscheint zusätzlich nur mit ``verbose``.
+    """
     name = record.get("name") or "?"
-    kind = record.get("type") or "Unknown"
-    lines = [f"{name} ({kind})"]
+    lines = [str(name)]
     if record.get("speciality"):
-        lines.append(f"Fachrichtung: {record['speciality']}")
-    if record.get("subtitle"):
-        lines.append(str(record["subtitle"]))
+        lines.append(f"Fach: {record['speciality']}")
     address = format_address(record.get("address"))
     if address:
         lines.append(f"Adresse: {address}")
-    for extra in record.get("addresses") or []:
-        if not isinstance(extra, dict):
-            continue
-        addr = format_address(extra)
-        if addr and addr != address:
-            label = extra.get("name") or "Weitere Adresse"
-            lines.append(f"{label}: {addr}")
-    motives = record.get("motive") or []
-    if motives:
-        lines.append("Motive:")
-        for m in motives:
-            if isinstance(m, dict):
-                mid = m.get("id")
-                mname = m.get("name") or "?"
-                lines.append(f"  - {mid} {mname}" if mid is not None
-                             else f"  - {mname}")
-    hours = record.get("opening_hours") or []
-    if hours:
-        lines.append("Öffnungszeiten:")
-        for h in hours:
-            lines.append(f"  - {h}")
-    if record.get("slug"):
-        lines.append(f"Slug: {record['slug']}")
+    telephone = str(record.get("telephone") or "").strip()
+    if telephone:
+        lines.append(f"Telefon: {telephone}")
+    online = bool(record.get("practice_id")) or any(
+        isinstance(m, dict) and m.get("id")
+        for m in (record.get("motive") or [])
+    )
+    lines.append(f"Online-Buchung: {'ja' if online else 'nein'}")
     if record.get("url"):
-        lines.append(f"URL: {record['url']}")
+        lines.append(f"Link: {record['url']}")
+    if verbose and record.get("slug"):
+        lines.append(f"Slug: {record['slug']}")
     return "\n".join(lines)
 
 
-def format_slots(payload: dict[str, Any]) -> str:
-    """Freie Termine als Tage-mit-Uhrzeiten-Liste."""
+def format_slots(payload: dict[str, Any], *, verbose: bool = False) -> str:
+    """Freie Termine kompakt: je Tag „Di 03.11.: 09:00, 10:30“.
+
+    Maximal ``MAX_TIMES_PER_LINE`` Uhrzeiten pro Zeile; lange Zeilen
+    fortgeführt. Kontext (Praxis, Motiv, Slug, Zähler) nur mit ``verbose``.
+    """
     profile = payload.get("profile") or {}
     motive = payload.get("motive") or {}
     lines: list[str] = []
-    title = profile.get("practice_name") or profile.get("slug") or "Profil"
-    lines.append(f"Freie Termine – {title}")
-    address = format_address({
-        "street": profile.get("practice_address"),
-        "postal_code": None,
-        "city": None,
-    })
-    # practice_address ist bei Doctolib bereits eine vollständige Zeile.
-    if not address and profile.get("practice_address"):
-        address = str(profile["practice_address"])
-    if address:
-        lines.append(address)
-    if profile.get("slug"):
-        lines.append(f"Slug: {profile['slug']}")
-    if motive.get("name"):
-        ins = motive.get("insurance")
-        lines.append(f"Motiv: {motive['name']}" + (f" ({ins})" if ins else ""))
-    lines.append("")
+    if verbose:
+        title = profile.get("practice_name") or profile.get("slug") or "Profil"
+        lines.append(f"Freie Termine – {title}")
+        address = str(profile.get("practice_address") or "").strip()
+        if address:
+            lines.append(address)
+        if profile.get("slug"):
+            lines.append(f"Slug: {profile['slug']}")
+        if motive.get("name"):
+            ins = motive.get("insurance")
+            lines.append(f"Motiv: {motive['name']}"
+                         + (f" ({ins})" if ins else ""))
+        lines.append("")
 
     availabilities = payload.get("availabilities") or []
     if not availabilities:
@@ -145,17 +134,31 @@ def format_slots(payload: dict[str, Any]) -> str:
     for day in availabilities:
         if not isinstance(day, dict) or not day.get("date"):
             continue
-        times = sorted({_format_time(s) for s in (day.get("slots") or [])
-                        if _format_time(s)})
-        if times:
-            lines.append(f"{_format_date(str(day['date']))}: "
-                         f"{', '.join(times)}")
-    total = payload.get("total", 0)
-    lines.append("")
-    lines.append(f"{total} Termin(e).")
+        times = [t for t in sorted({_format_time(s)
+                                    for s in (day.get("slots") or [])}) if t]
+        if not times:
+            continue
+        label = _format_date(str(day['date']))
+        chunks = [times[i:i + MAX_TIMES_PER_LINE]
+                  for i in range(0, len(times), MAX_TIMES_PER_LINE)]
+        lines.append(f"{label}: {', '.join(chunks[0])}")
+        indent = " " * (len(label) + 2)
+        for chunk in chunks[1:]:
+            lines.append(f"{indent}{', '.join(chunk)}")
+
+    if verbose:
+        total = payload.get("total", 0)
+        lines.append("")
+        lines.append(f"{total} Termin(e).")
     if payload.get("reason"):
         lines.append(f"Hinweis: {payload['reason']}")
     return "\n".join(lines)
 
 
-__all__ = ["format_address", "format_search", "format_show", "format_slots"]
+__all__ = [
+    "MAX_TIMES_PER_LINE",
+    "format_address",
+    "format_search",
+    "format_show",
+    "format_slots",
+]

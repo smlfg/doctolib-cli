@@ -68,26 +68,92 @@ def test_format_search_verbose_adds_slug_line() -> None:
 
 def test_format_slots_groups_times_per_day() -> None:
     text = format_slots(_slots_payload())
+    assert "Di 20.10.: 09:00, 10:00" in text
+    assert "slug" not in text
+    assert "Termin(e)." not in text
+
+
+def test_format_slots_verbose_keeps_context_and_slug() -> None:
+    text = format_slots(_slots_payload(), verbose=True)
     assert "Freie Termine – Praxis X" in text
-    assert "Di 20.10.2026: 09:00, 10:00" in text
+    assert "Slug: hautarzt/heilbronn/dr-x" in text
+    assert "Di 20.10.: 09:00, 10:00" in text
     assert "2 Termin(e)." in text
 
 
-def test_format_show_lists_core_fields() -> None:
-    text = format_show({
+def test_format_slots_wraps_after_eight_times() -> None:
+    payload = {
+        "profile": {"slug": "x"},
+        "availabilities": [{
+            "date": "2026-10-20",
+            "slots": [f"2026-10-20T{n:02d}:00:00+02:00"
+                      for n in range(10)],
+        }],
+        "total": 10,
+    }
+    text = format_slots(payload)
+    lines = text.splitlines()
+    assert lines[0].count(", ") == 7
+    assert lines[0].endswith("07:00")
+    assert lines[1] == "           08:00, 09:00"
+
+
+def test_format_slots_empty_period() -> None:
+    text = format_slots({"availabilities": [], "total": 0})
+    assert "(keine freien Termine im Zeitraum)" in text
+
+
+def test_format_show_is_compact_profile() -> None:
+    record = {
         "name": "Dr. Maria Test",
         "type": "Physician",
         "speciality": "Hautarzt",
         "address": {"street": "Teststr. 42", "postal_code": "10115",
                     "city": "Berlin"},
+        "telephone": "030 12345678",
+        "practice_id": 635395,
         "motive": [{"id": 4711, "name": "Hautkrebsvorsorge"}],
         "slug": "hautarzt/berlin/test-profile",
         "url": "https://www.doctolib.de/hautarzt/berlin/test-profile",
+    }
+    text = format_show(record)
+    lines = text.splitlines()
+    assert lines[0] == "Dr. Maria Test"
+    assert "Fach: Hautarzt" in text
+    assert "Adresse: Teststr. 42, 10115 Berlin" in text
+    assert "Telefon: 030 12345678" in text
+    assert "Online-Buchung: ja" in text
+    assert "Link: https://www.doctolib.de/hautarzt/berlin/test-profile" \
+        in text
+    assert "Slug:" not in text
+    assert len(lines) == 6
+
+
+def test_format_show_without_phone_and_booking() -> None:
+    text = format_show({
+        "name": "Dr. Offline",
+        "speciality": None,
+        "address": {"street": "Weg 3", "postal_code": "10115",
+                    "city": "Berlin"},
+        "motive": [{"id": None, "name": "Beratung"}],
+        "slug": "arzt/berlin/offline",
+        "url": "",
     })
-    assert "Dr. Maria Test (Physician)" in text
-    assert "Fachrichtung: Hautarzt" in text
-    assert "Teststr. 42, 10115 Berlin" in text
-    assert "4711 Hautkrebsvorsorge" in text
+    assert "Telefon" not in text
+    assert "Online-Buchung: nein" in text
+    assert "Fach:" not in text
+    assert "Link:" not in text
+
+
+def test_format_show_verbose_keeps_slug() -> None:
+    text = format_show({
+        "name": "Dr. Maria Test",
+        "speciality": "Hautarzt",
+        "address": {},
+        "motive": [{"id": None, "name": "Beratung"}],
+        "slug": "hautarzt/berlin/test-profile",
+        "url": "https://www.doctolib.de/hautarzt/berlin/test-profile",
+    }, verbose=True)
     assert "Slug: hautarzt/berlin/test-profile" in text
 
 
@@ -215,8 +281,35 @@ def test_slots_interactive_prompt_selects_number(monkeypatch, http,
     assert code == 0
     out = capsys.readouterr().out
     assert "Nummer wählen [1-1]" in out
+    assert "hautarzt/heilbronn/dr-x" not in out.split("Nummer wählen")[1]
     assert "Gewählt: Dr. med. X" in out
-    assert "Di 20.10.2026: 09:00" in out
+    assert "Di 20.10.: 09:00" in out
+    assert out.count("Treffer für die Auswahl") == 0
+
+
+def test_slots_interactive_verbose_shows_slug(monkeypatch, http,
+                                              capsys) -> None:
+    html = search_html_berlin([
+        {"name": "Dr. med. X",
+         "url": "/hautarzt/heilbronn/dr-x?pid=practice-635395"},
+    ], city_name="Heilbronn")
+    import doctolib_cli.search as search_mod
+    monkeypatch.setattr(search_mod, "_fetch_search_html", lambda url: html)
+    monkeypatch.setattr(cli, "_is_tty", lambda: True)
+    monkeypatch.setattr(cli, "_stdin_tty", lambda: True)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("1\n"))
+    http.route(contains="info.json", json_data=info_json(
+        profile_slug="dr-x", practice_id=635395))
+    http.route(contains="availabilities.json",
+               json_data=availabilities_json())
+
+    code = cli.main(["slots", "hautarzt", "heilbronn",
+                     "--insurance", "public", "-v"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Gewählt: Dr. med. X (hautarzt/heilbronn/dr-x)" in out
+    assert "Freie Termine – Praxis Mitte" in out
+    assert "Di 20.10.: 09:00" in out
 
 
 def test_slots_interactive_bad_choice_is_usage(monkeypatch, capsys) -> None:
@@ -268,6 +361,72 @@ def test_show_pick_out_of_range(monkeypatch, capsys) -> None:
     data = json.loads(capsys.readouterr().out)
     assert data["error"]["kind"] == "usage"
     assert data["error"]["candidates"]
+
+
+def test_show_terminal_is_compact_without_slug(monkeypatch, http,
+                                               capsys) -> None:
+    html = search_html_berlin([
+        {"name": "Dr. med. X",
+         "url": "/hautarzt/heilbronn/dr-x?pid=practice-635395"},
+    ], city_name="Heilbronn")
+    import doctolib_cli.search as search_mod
+    monkeypatch.setattr(search_mod, "_fetch_search_html", lambda url: html)
+    monkeypatch.setattr(cli, "_is_tty", lambda: True)
+    http.route(contains="/dr-x", text=profile_html(
+        name="Dr. med. X", slug="hautarzt/heilbronn/dr-x"))
+    http.route(contains="info.json", json_data=info_json(
+        profile_slug="dr-x"))
+
+    code = cli.main(["show", "hautarzt", "heilbronn", "--pick", "1"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Gewählt: Dr. med. X" in out
+    assert "Dr. med. X\n" in out
+    assert "Fach: Hautarzt" in out
+    assert "Online-Buchung: ja" in out
+    assert "Link: http" in out
+    assert "Slug:" not in out
+    assert "4711" not in out
+
+
+def test_show_terminal_verbose_keeps_slug(monkeypatch, http, capsys) -> None:
+    html = search_html_berlin([
+        {"name": "Dr. med. X",
+         "url": "/hautarzt/heilbronn/dr-x?pid=practice-635395"},
+    ], city_name="Heilbronn")
+    import doctolib_cli.search as search_mod
+    monkeypatch.setattr(search_mod, "_fetch_search_html", lambda url: html)
+    monkeypatch.setattr(cli, "_is_tty", lambda: True)
+    http.route(contains="/dr-x", text=profile_html(
+        name="Dr. med. X", slug="hautarzt/heilbronn/dr-x"))
+    http.route(contains="info.json", json_data=info_json(
+        profile_slug="dr-x"))
+
+    code = cli.main(["show", "hautarzt", "heilbronn", "--pick", "1", "-v"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Gewählt: Dr. med. X (hautarzt/heilbronn/dr-x)" in out
+    assert "Slug: hautarzt/heilbronn/dr-x" in out
+
+
+def test_show_profile_telephone_reaches_record(http) -> None:
+    from doctolib_cli.show import show_profile
+    html = profile_html().replace(
+        '"@type": "Physician",',
+        '"@type": "Physician", "telephone": "030 12345678",')
+    http.route(contains="/test-profile", text=html)
+    http.route(contains="info.json", json_data=info_json())
+    code, payload = show_profile("hautarzt/berlin/test-profile")
+    assert code == 0
+    assert payload["telephone"] == "030 12345678"
+
+
+def test_show_profile_without_telephone_has_no_key(http) -> None:
+    from doctolib_cli.show import show_profile
+    http.route(contains="/test-profile", text=profile_html())
+    http.route(contains="info.json", json_data=info_json())
+    _, payload = show_profile("hautarzt/berlin/test-profile")
+    assert "telephone" not in payload
 
 
 def test_help_documents_search_by_name(capsys) -> None:

@@ -127,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Suche erzwingen, z. B. --search \"hautarzt heilbronn\".")
     p_sh.add_argument("--pick", type=int, default=None, metavar="N",
                       help="Treffer N aus der Suche ohne Prompt wählen.")
+    _add_verbose_flag(p_sh)
     _add_json_flag(p_sh)
 
     p_sl = sub.add_parser(
@@ -149,6 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_sl.add_argument("--insurance", default="any",
                       help="public|private|any (Default any). Aliasse: "
                            "gesetzlich=public, privat/pkv=private.")
+    _add_verbose_flag(p_sl)
     _add_json_flag(p_sl)
 
     p_sp = sub.add_parser("specialities", help="Bekannte Fachrichtungs-Slugs.")
@@ -188,6 +190,19 @@ def _not_implemented(cmd: str, as_json: bool) -> int:
                 as_json=as_json, kind="usage")
 
 
+def _gewaehlt_line(resolved: dict[str, Any], *,
+                   verbose: bool) -> str | None:
+    """„Gewählt: Dr. Name“ nach der Auswahl – Slug nur mit --verbose."""
+    chosen = resolved.get("result")
+    if not isinstance(chosen, dict):
+        return None
+    name = chosen.get("name") or "?"
+    slug = resolved.get("slug") or ""
+    if verbose and slug:
+        return f"Gewählt: {name} ({slug})"
+    return f"Gewählt: {name}"
+
+
 def cmd_search(args: argparse.Namespace) -> int:
     from . import search as search_mod
     from .output import format_search
@@ -219,11 +234,11 @@ def cmd_show(args: argparse.Namespace) -> int:
     if code != 0:
         return _fail_payload(payload, as_json=args.json)
     if _human_mode(args):
-        chosen = resolved.get("result")
-        if chosen:
-            sys.stdout.write(f"Gewählt: {chosen.get('name')} "
-                             f"({slug})\n\n")
-        sys.stdout.write(format_show(payload) + "\n")
+        line = _gewaehlt_line(resolved, verbose=getattr(args, "verbose", False))
+        if line:
+            sys.stdout.write(line + "\n\n")
+        sys.stdout.write(format_show(payload,
+                                     verbose=getattr(args, "verbose", False)) + "\n")
         return 0
     return emit(payload, args.json)
 
@@ -249,11 +264,11 @@ def cmd_slots(args: argparse.Namespace) -> int:
     if code != 0:
         return _fail_payload(payload, as_json=args.json)
     if _human_mode(args):
-        chosen = resolved.get("result")
-        if chosen:
-            sys.stdout.write(f"Gewählt: {chosen.get('name')} "
-                             f"({slug})\n\n")
-        sys.stdout.write(format_slots(payload) + "\n")
+        line = _gewaehlt_line(resolved, verbose=getattr(args, "verbose", False))
+        if line:
+            sys.stdout.write(line + "\n\n")
+        sys.stdout.write(format_slots(payload,
+                                      verbose=getattr(args, "verbose", False)) + "\n")
         return 0
     return emit(payload, args.json)
 

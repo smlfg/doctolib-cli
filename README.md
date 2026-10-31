@@ -3,13 +3,15 @@
 ## Schnellstart
 
 ```bash
-pipx install git+https://github.com/smlfg/doctolib-cli   # empfohlen, landet im PATH
-# Alternative: pip install --user git+https://github.com/smlfg/doctolib-cli
-playwright install chromium
+pipx install git+https://github.com/smlfg/doctolib-cli
 doctolib search hautarzt heilbronn
 doctolib slots hautarzt heilbronn
-doctolib slots hautarzt/berlin/kosar-hedayat --days 14
+doctolib show hautarzt heilbronn --pick 1
+doctolib specialities
 ```
+
+Für die Live-Suche (nicht für einen lokalen Fake-Server) sollte Chromium
+einmalig installiert werden: `playwright install chromium`.
 
 Wenn der Befehl danach nicht gefunden wird: `pipx` nutzen oder das
 `bin`-Verzeichnis des venv in den `PATH` aufnehmen.

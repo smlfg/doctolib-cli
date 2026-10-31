@@ -1,0 +1,45 @@
+{
+  "data": {
+    "profile": {
+      "id": 88001,
+      "name_with_title": "Dr. med. Sabine Weber",
+      "slug": "dr-sabine-weber",
+      "speciality": {"name": "Haut- und Geschlechtskrankheiten"},
+      "subtitle": "Hautärztin in Heilbronn"
+    },
+    "places": [
+      {
+        "name": "Praxis Dr. Sabine Weber",
+        "address": "Hauptstraße 12",
+        "zipcode": "74072",
+        "city": "Heilbronn",
+        "slug": "dr-sabine-weber",
+        "practice_ids": [635395]
+      }
+    ],
+    "agendas": [
+      {
+        "id": 4321,
+        "practice_id": 635395,
+        "visit_motive_ids": [4711],
+        "booking_temporary_disabled": false
+      }
+    ],
+    "visit_motives": [
+      {
+        "id": 4711,
+        "name": "Hautkrebsvorsorge",
+        "visit_motive_category_id": null,
+        "configurations": [
+          {
+            "insurance": "public",
+            "agenda_id": null,
+            "disabled": false,
+            "online_booking_status": "enabled_for_all"
+          }
+        ]
+      }
+    ],
+    "visit_motive_categories": []
+  }
+}

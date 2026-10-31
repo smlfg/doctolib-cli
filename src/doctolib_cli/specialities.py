@@ -122,9 +122,33 @@ def resolve_speciality(value: str) -> str | None:
     return None
 
 
-def list_specialities() -> list[dict[str, str]]:
-    """Gibt die Slug-Liste zurück (stabil sortiert nach Slug)."""
-    return sorted(SPECIALITIES, key=lambda s: s["slug"])
+def list_specialities(filter_text: str | None = None
+                      ) -> list[dict[str, str]]:
+    """Liste der Fachrichtungen (stabil nach Slug sortiert).
+
+    Mit ``filter_text``: case-insensitiver Teilstring-Match auf Slug oder Name.
+    """
+    items = sorted(SPECIALITIES, key=lambda s: s["slug"])
+    needle = (filter_text or "").strip().lower()
+    if not needle:
+        return items
+    return [s for s in items
+            if needle in s["slug"].lower() or needle in s["name"].lower()]
 
 
-__all__ = ["SPECIALITIES", "resolve_speciality", "list_specialities"]
+def grid_lines(values: list[str], *, width: int = 100) -> list[str]:
+    """Mehrspaltiges Layout (kompakte TTY-Ausgabe, row-major)."""
+    if not values:
+        return []
+    cell = max(len(v) for v in values) + 2
+    columns = max(1, width // cell)
+    columns = min(columns, len(values))
+    lines: list[str] = []
+    for start in range(0, len(values), columns):
+        row = values[start:start + columns]
+        lines.append("".join(f"{v:<{cell}}" for v in row).rstrip())
+    return lines
+
+
+__all__ = ["SPECIALITIES", "resolve_speciality", "list_specialities",
+           "grid_lines"]

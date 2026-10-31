@@ -153,7 +153,10 @@ def build_parser() -> argparse.ArgumentParser:
     _add_verbose_flag(p_sl)
     _add_json_flag(p_sl)
 
-    p_sp = sub.add_parser("specialities", help="Bekannte Fachrichtungs-Slugs.")
+    p_sp = sub.add_parser("specialities",
+                          help="Bekannte Fachrichtungs-Slugs (optional filtern).")
+    p_sp.add_argument("filter", nargs="?", default=None, metavar="FILTER",
+                      help="Teilstring (case-insensitiv), z. B. 'haut'.")
     _add_json_flag(p_sp)
 
     p_b = sub.add_parser("book", help="Termin buchen (NICHT UNTERSTÜTZT).")
@@ -274,16 +277,32 @@ def cmd_slots(args: argparse.Namespace) -> int:
 
 
 def cmd_specialities(args: argparse.Namespace) -> int:
+    import shutil
+
     from . import specialities as sp_mod
-    items = sp_mod.list_specialities()
+    flt = (getattr(args, "filter", None) or "").strip()
+    items = sp_mod.list_specialities(filter_text=flt)
+    if not items:
+        return fail(
+            1,
+            f"keine Fachrichtung passt zu {flt!r} "
+            "(alle: `doctolib specialities`)",
+            as_json=args.json,
+            kind="usage",
+        )
     if args.json:
         payload = {"specialities": items, "count": len(items)}
         return emit(payload, True)
-    # Textmodus: zwei Spalten (Slug | Name)
-    name_w = max((len(s["name"]) for s in items), default=0)
-    for s in items:
-        sys.stdout.write(f"{s['slug']:<24} {s['name']}\n")
-    sys.stdout.write(f"\n{len(items)} Fachrichtungen.\n")
+    # Textmodus: mehrspaltiges, kompaktes Slug-Raster.
+    try:
+        width = shutil.get_terminal_size(fallback=(100, 30)).columns
+    except OSError:
+        width = 100
+    for line in sp_mod.grid_lines([s["slug"] for s in items], width=width):
+        sys.stdout.write(line + "\n")
+    n = len(items)
+    sys.stdout.write(
+        f"\n{n} {'Fachrichtung' if n == 1 else 'Fachrichtungen'}.\n")
     return 0
 
 

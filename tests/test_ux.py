@@ -437,3 +437,74 @@ def test_help_documents_search_by_name(capsys) -> None:
         assert "--search" in out
         assert "--pick" in out
         assert "hautarzt heilbronn" in out
+
+
+# ----- specialities: Filter + mehrspaltiges TTY-Raster ---------------------
+
+def test_specialities_filter_matches_slug_and_name(monkeypatch,
+                                                   capsys) -> None:
+    monkeypatch.setattr(cli, "_is_tty", lambda: True)
+    code = cli.main(["specialities", "haut"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "hautarzt" in out
+    assert "dermatologie" in out
+    assert "augenarzt" not in out
+    assert "2 Fachrichtungen." in out
+
+
+def test_specialities_filter_case_insensitive(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli, "_is_tty", lambda: True)
+    code = cli.main(["specialities", "HAUTARZT"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "hautarzt" in out
+    assert "psychotherapie" not in out
+
+
+def test_specialities_no_match_exits_1(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli, "_is_tty", lambda: True)
+    code = cli.main(["specialities", "xyzzynotfound"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "[usage]" in err
+    assert "xyzzynotfound" in err
+
+
+def test_specialities_no_match_json_error(monkeypatch, capsys) -> None:
+    code = cli.main(["specialities", "xyzzynotfound", "--json"])
+    assert code == 1
+    out = capsys.readouterr().out
+    data = json.loads(out)
+    assert data["error"]["kind"] == "usage"
+
+
+def test_specialities_filter_json_stays_same_shape(monkeypatch,
+                                                   capsys) -> None:
+    code = cli.main(["specialities", "haut", "--json"])
+    assert code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["count"] == 2
+    slugs = {s["slug"] for s in data["specialities"]}
+    assert slugs == {"hautarzt", "dermatologie"}
+
+
+def test_specialities_default_listing_is_multicolumn(monkeypatch,
+                                                     capsys) -> None:
+    from doctolib_cli.specialities import SPECIALITIES
+    monkeypatch.setattr(cli, "_is_tty", lambda: True)
+    code = cli.main(["specialities"])
+    assert code == 0
+    out = capsys.readouterr().out
+    lines = out.strip().splitlines()
+    # Kompakter als 58 Einzeiler: jede Zeile trägt mehrere Slugs.
+    assert len(lines) - 2 < len(SPECIALITIES)  # -1 Leerzeile, -1 Zähler
+    assert "58 Fachrichtungen." in out
+
+
+def test_specialities_grid_lines_column_count() -> None:
+    from doctolib_cli.specialities import grid_lines
+    lines = grid_lines(["aa", "bb", "cc", "dd", "ee"], width=10)
+    assert len(lines) == 3
+    assert lines[0] == "aa  bb"
+    assert lines[2] == "ee"

@@ -33,7 +33,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any
 from urllib.parse import quote
 
-from .http import HttpError, get_json
+from .http import HttpError, get_json, resolve_base
 from .show import _slug_from_input
 
 LOG = logging.getLogger("doctolib_cli.slots")
@@ -94,16 +94,16 @@ def _practice_id_from_url(url: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def _load_info(slug: str, *, base_url: str = "https://www.doctolib.de"
+def _load_info(slug: str, *, base_url: str | None = None
                ) -> dict[str, Any] | None:
+    base = resolve_base(base_url)
     short = slug.rsplit("/", 1)[-1]
     info_url = (
-        f"{base_url.rstrip('/')}/online_booking/api/slot_selection_funnel/v1/info.json"
+        f"{base}/online_booking/api/slot_selection_funnel/v1/info.json"
         f"?profile_slug={short}&locale=de"
     )
     try:
-        _, payload = get_json(info_url,
-                              referer=f"{base_url.rstrip('/')}/{slug}")
+        _, payload = get_json(info_url, referer=f"{base}/{slug}", base=base)
     except HttpError as exc:
         LOG.debug("info.json: %s", exc)
         return None
@@ -205,9 +205,10 @@ def _pick_default(configs: list[dict[str, Any]],
 def _call_availabilities(visit_motive_id: int, agenda_id: int,
                          practice_id: int, insurance: str, *,
                          start_date_time: str, limit: int,
-                         base_url: str = "https://www.doctolib.de"
+                         base_url: str | None = None
                          ) -> dict[str, Any]:
     """Ein availabilities.json-Call. Wirft HttpError."""
+    base = resolve_base(base_url)
     params = {
         "start_date_time": start_date_time,
         "visit_motive_id": str(visit_motive_id),
@@ -217,8 +218,8 @@ def _call_availabilities(visit_motive_id: int, agenda_id: int,
         "telehealth": "false",
         "limit": str(max(1, int(limit))),
     }
-    url = f"{base_url.rstrip('/')}/search/availabilities.json"
-    _, data = get_json(url, params=params)
+    url = f"{base}/search/availabilities.json"
+    _, data = get_json(url, params=params, base=base)
     if not isinstance(data, dict):
         raise HttpError(4, "parse", "availabilities.json: kein Objekt",
                         url=url)
@@ -308,7 +309,7 @@ def slots_for_profile(slug_or_url: str, *,
                       motive: str | None = None,
                       days: int | None = 7,
                       insurance: str = "any",
-                      base_url: str = "https://www.doctolib.de"
+                      base_url: str | None = None
                       ) -> tuple[int, dict[str, Any]]:
     """Liefert (exit_code, payload).
 
@@ -316,6 +317,7 @@ def slots_for_profile(slug_or_url: str, *,
     Bei ``any`` werden sowohl Kassen- als auch Privat-Tupel abgefragt
     (max. ``MAX_TUPLED`` Tupel gedeckelt).
     """
+    base = resolve_base(base_url)
     if not slug_or_url or not slug_or_url.strip():
         return 1, {"error": {"kind": "usage", "code": 1,
                              "message": "Slug oder URL fehlt"}}
@@ -332,7 +334,7 @@ def slots_for_profile(slug_or_url: str, *,
     except ValueError as exc:
         return 1, {"error": {"kind": "usage", "code": 1, "message": str(exc)}}
 
-    info = _load_info(slug, base_url=base_url)
+    info = _load_info(slug, base_url=base)
     if not info:
         return 4, {"error": {"kind": "parse", "code": 4,
                              "message": (f"info.json nicht abrufbar für {slug} "
@@ -404,7 +406,7 @@ def slots_for_profile(slug_or_url: str, *,
                     cfg["visit_motive_id"], cfg["agenda_id"],
                     cfg["practice_id"], cfg["insurance"],
                     start_date_time=cursor_dt, limit=chunk,
-                    base_url=base_url,
+                    base_url=base,
                 )
             except HttpError as exc:
                 return exc.code, {
@@ -465,7 +467,7 @@ def slots_for_profile(slug_or_url: str, *,
             "slug": slug,
             "practice_id": practice_id,
             "practice_ids": sorted({c["practice_id"] for c in chosen}),
-            "url": f"{base_url.rstrip('/')}/{slug}",
+            "url": f"{base}/{slug}",
             "practice_name": practice_meta.get("name"),
             "practice_address": practice_meta.get("address"),
         },

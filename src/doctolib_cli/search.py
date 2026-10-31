@@ -18,8 +18,11 @@ import logging
 import re
 from html.parser import HTMLParser
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
+
+from .http import is_safe_url, resolve_base
 
 LOG = logging.getLogger("doctolib_cli.search")
 
@@ -32,6 +35,12 @@ _BROWSER_HEADERS = {
     "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
 }
 _WINDOW_PLACE_RE = re.compile(r"window\.place\s*=\s*(\{.+?\});", re.DOTALL)
+
+
+def _is_loopback_base(base: str) -> bool:
+    """True für lokale Fake-Server-Basen (dort ist Playwright unnötig)."""
+    host = (urlparse(base).hostname or "").lower()
+    return host in {"localhost", "::1"} or host.startswith("127.")
 
 
 def _slugify_location(value: str) -> str:
@@ -134,9 +143,10 @@ def _item_to_record(item: Any) -> dict[str, Any] | None:
 
 def search_speciality_location(speciality: str, location: str,
                                *, limit: int = 20,
-                               base_url: str = "https://www.doctolib.de",
+                               base_url: str | None = None,
                                ) -> tuple[int, dict[str, Any]]:
     """Suche. (exit_code, payload). 0=OK, 1=usage, 3=network, 4=parse."""
+    base = resolve_base(base_url)
     if not speciality or not speciality.strip():
         return 1, {"error": {"kind": "usage", "code": 1,
                               "message": "speciality fehlt"}}
@@ -158,29 +168,35 @@ def search_speciality_location(speciality: str, location: str,
         return 1, {"error": {"kind": "usage", "code": 1,
                               "message": f"Ort nicht parsebar: {location!r}"}}
 
-    url = f"{base_url.rstrip('/')}/{sp_slug}/{loc_slug}"
+    url = f"{base}/{sp_slug}/{loc_slug}"
     html: str | None = None
-    try:
-        html = _fetch_search_html(url)
-    except _SearchFetchError as exc:
-        if exc.code != 3:
-            return exc.code, {"error": {"kind": exc.kind, "code": exc.code,
-                                         "message": str(exc)}}
+    if _is_loopback_base(base):
+        # Lokaler Fake-Server: kein Browser nötig, reiner HTTP-Weg.
         html = _fetch_listing_requests(url)
-        if html is None:
-            return exc.code, {"error": {"kind": exc.kind, "code": exc.code,
-                                         "message": str(exc)}}
+    else:
+        try:
+            html = _fetch_search_html(url)
+        except _SearchFetchError as exc:
+            if exc.code != 3:
+                return exc.code, {"error": {"kind": exc.kind, "code": exc.code,
+                                             "message": str(exc)}}
+            html = _fetch_listing_requests(url)
+            if html is None:
+                return exc.code, {"error": {"kind": exc.kind, "code": exc.code,
+                                             "message": str(exc)}}
 
     if html is None:
         return 3, {"error": {"kind": "network", "code": 3,
                               "message": f"Doctolib liefert nichts für {url}"}}
 
-    records = _records_from_search_html(html, url, sp_slug, limit=limit)
+    records = _records_from_search_html(html, url, sp_slug, limit=limit,
+                                        base_url=base)
     if not records and _is_access_blocked(html):
         alt = _fetch_listing_requests(url)
         if alt:
             html = alt
-            records = _records_from_search_html(html, url, sp_slug, limit=limit)
+            records = _records_from_search_html(html, url, sp_slug, limit=limit,
+                                                base_url=base)
     if not records:
         if _is_access_blocked(html):
             return 3, {"error": {"kind": "network", "code": 3,
@@ -264,15 +280,18 @@ def _provider_to_record(prov: dict[str, Any]) -> dict[str, Any] | None:
 
 def _fetch_phs_providers(url: str, keyword_slug: str, place: dict[str, Any],
                          *, limit: int,
-                         base_url: str = "https://www.doctolib.de",
+                         base_url: str | None = None,
                          ) -> list[dict[str, Any]]:
+    base = resolve_base(base_url)
     payload = {
         "keyword": keyword_slug,
         "location": {"place": place},
         "filters": {},
     }
-    api = (f"{base_url.rstrip('/')}/patient-health-search/api/v1/"
+    api = (f"{base}/patient-health-search/api/v1/"
            "hcp/search?page=0")
+    if not is_safe_url(api, base=base):
+        return []
     resp = requests.post(
         api,
         json=payload,
@@ -280,7 +299,7 @@ def _fetch_phs_providers(url: str, keyword_slug: str, place: dict[str, Any],
             **_BROWSER_HEADERS,
             "Content-Type": "application/json",
             "Referer": url,
-            "Origin": base_url.rstrip("/"),
+            "Origin": base,
         },
         timeout=PLAYWRIGHT_TIMEOUT_S,
     )
@@ -298,7 +317,9 @@ def _fetch_phs_providers(url: str, keyword_slug: str, place: dict[str, Any],
 
 
 def _records_from_search_html(html: str, page_url: str, keyword_slug: str,
-                              *, limit: int) -> list[dict[str, Any]]:
+                              *, limit: int,
+                              base_url: str | None = None
+                              ) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     items = _extract_collection(html)
     for it in items[:limit]:
@@ -310,7 +331,7 @@ def _records_from_search_html(html: str, page_url: str, keyword_slug: str,
     place = _extract_window_place(html)
     if place:
         for prov in _fetch_phs_providers(page_url, keyword_slug, place,
-                                         limit=limit):
+                                         limit=limit, base_url=base_url):
             rec = _provider_to_record(prov)
             if rec is not None:
                 records.append(rec)

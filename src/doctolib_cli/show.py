@@ -25,7 +25,7 @@ from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
-from .http import HttpError, get_json, get_text
+from .http import HttpError, get_json, get_text, resolve_base
 from .search import _LdJsonExtractor  # reuse Parser
 
 LOG = logging.getLogger("doctolib_cli.show")
@@ -82,15 +82,16 @@ def _load_ld_json_profile(html: str) -> dict[str, Any] | None:
 
 
 def _load_info_json(profile_slug: str,
-                    base_url: str = "https://www.doctolib.de") -> dict[str, Any] | None:
+                    base_url: str | None = None) -> dict[str, Any] | None:
     """Lädt Online-Booking-Info. ``None`` wenn Endpoint nicht verfügbar."""
+    base = resolve_base(base_url)
     short = _short_slug(profile_slug)
     info_url = (
-        f"{base_url.rstrip('/')}/online_booking/api/slot_selection_funnel/v1/info.json"
+        f"{base}/online_booking/api/slot_selection_funnel/v1/info.json"
         f"?profile_slug={short}&locale=de"
     )
     try:
-        _, payload = get_json(info_url, referer=f"{base_url.rstrip('/')}/{profile_slug}")
+        _, payload = get_json(info_url, referer=f"{base}/{profile_slug}", base=base)
     except HttpError as exc:
         LOG.debug("info.json: %s", exc)
         return None
@@ -101,7 +102,8 @@ def _load_info_json(profile_slug: str,
 
 def _normalize_record(ld: dict[str, Any],
                       info: dict[str, Any] | None,
-                      profile_slug: str) -> dict[str, Any]:
+                      profile_slug: str,
+                      base_url: str | None = None) -> dict[str, Any]:
     """Baut das JSON-konforme Record aus beiden Quellen."""
     # Adresse aus ld+json (Hauptadresse)
     addr_any = ld.get("address") or {}
@@ -172,7 +174,7 @@ def _normalize_record(ld: dict[str, Any],
         motives_out = []
 
     # Profile-URL (kanonisch)
-    base = "https://www.doctolib.de"
+    base = resolve_base(base_url)
     pid_qs = ""
     if practice_ids:
         pid_qs = f"?pid=practice-{practice_ids[0]}"
@@ -222,9 +224,10 @@ def _speciality(info: dict[str, Any] | None) -> str | None:
 
 
 def show_profile(slug_or_url: str,
-                 *, base_url: str = "https://www.doctolib.de"
+                 *, base_url: str | None = None
                  ) -> tuple[int, dict[str, Any]]:
     """Lädt ein Doctolib-Profil. (exit_code, payload)."""
+    base = resolve_base(base_url)
     if not slug_or_url or not slug_or_url.strip():
         return 1, {"error": {"kind": "usage", "code": 1,
                              "message": "Slug oder URL fehlt"}}
@@ -238,9 +241,9 @@ def show_profile(slug_or_url: str,
             return 1, {"error": {"kind": "usage", "code": 1,
                                  "message": f"Slug/URL nicht parsebar: {slug_or_url!r}"}}
 
-    profile_url = f"{base_url.rstrip('/')}/{slug}"
+    profile_url = f"{base}/{slug}"
     try:
-        status, html = get_text(profile_url)
+        status, html = get_text(profile_url, base=base)
     except HttpError as exc:
         return exc.code, {"error": {"kind": exc.kind, "code": exc.code,
                                     "message": str(exc)}}
@@ -262,8 +265,8 @@ def show_profile(slug_or_url: str,
         return 4, {"error": {"kind": "parse", "code": 4,
                              "message": "kein ld+json Physician/Organization-Block auf der Profilseite"}}
 
-    info = _load_info_json(slug, base_url=base_url)
-    record = _normalize_record(ld, info, slug)
+    info = _load_info_json(slug, base_url=base)
+    record = _normalize_record(ld, info, slug, base_url=base)
     return 0, record
 
 

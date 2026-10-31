@@ -7,7 +7,7 @@ pipx install git+https://github.com/smlfg/doctolib-cli
 doctolib search hautarzt heilbronn
 doctolib slots hautarzt heilbronn
 doctolib show hautarzt heilbronn --pick 1
-doctolib specialities
+doctolib specialities haut
 ```
 
 Für die Live-Suche (nicht für einen lokalen Fake-Server) sollte Chromium
@@ -45,14 +45,17 @@ rendert die Treffer erst nach Microfrontend-Hydration, daher geht `search`
 
 ```bash
 doctolib search hautarzt berlin --limit 3
+doctolib search hautarzt berlin --limit 3 -v      # Slug je Treffer zeigen
 doctolib search zahnarzt heilbronn --limit 3 --json
 ```
 
 `--limit` ist 1..50, Default 20. Im Terminal erscheint eine nummerierte
-Liste mit Adresse und Slug; bei Pipe/Agent (oder mit `--json`) bleibt
-das JSON-Objekt (`results[]`, `count`, `query`) unverändert.
+Liste („ 1. Dr. med. Sabine Weber – Hautkrebsvorsorge“) mit der Adresse
+eingerückt darunter; Slugs gibt es dort nur mit `-v`/`--verbose`. Bei
+Pipe/Agent (oder mit `--json`) bleibt das JSON-Objekt (`results[]`,
+`count`, `query`) unverändert.
 
-### `doctolib show SLUG|URL|FACH ORT [--search ...] [--pick N] [--json]`
+### `doctolib show SLUG|URL|FACH ORT [--search ...] [--pick N] [-v] [--json]`
 
 Profilseite (HTML) + Online-Booking-Info (`info.json`) zu einem
 Slug wie `hautarzt/berlin/kosar-hedayat` oder einer vollen Doctolib-URL.
@@ -62,14 +65,19 @@ doctolib show hautarzt/berlin/kosar-hedayat
 doctolib show hautarzt heilbronn --pick 1        # Suche + Auswahl
 ```
 
-Im Terminal erscheint eine lesbare Zusammenfassung; bei Pipe/Agent
-(oder mit `--json`) bleibt das JSON-Objekt unverändert.
+Im Terminal erscheint eine kompakte Profil-Ansicht: Name, Fach, Adresse,
+Telefon (falls vorhanden), Online-Buchung ja/nein und der Profil-Link
+(Doctolib-URL der konfigurierten Basis). Nach der Auswahl aus einer
+Suche steht davor „Gewählt: Dr. Name“. Der Slug erscheint zusätzlich
+nur mit `-v`/`--verbose`. Bei Pipe/Agent (oder mit `--json`) bleibt das
+JSON-Objekt unverändert.
 
 Felder: `name`, `type` (`Physician` / `MedicalOrganization`), `address`,
 `addresses[]`, `image`, `motive[]` (aus info.json), `speciality`,
-`opening_hours[]`, `slug`, `practice_id`, `practice_ids[]`, `url`.
+`telephone` (falls vorhanden), `opening_hours[]`, `slug`, `practice_id`,
+`practice_ids[]`, `url`.
 
-### `doctolib slots SLUG|URL|FACH ORT [--search ...] [--pick N] [--motive ID|TEXT] [--days N] [--insurance X] [--json]`
+### `doctolib slots SLUG|URL|FACH ORT [--search ...] [--pick N] [-v] [--motive ID|TEXT] [--days N] [--insurance X] [--json]`
 
 Freie Termine live aus
 `https://www.doctolib.de/search/availabilities.json`.
@@ -84,9 +92,13 @@ doctolib slots hautarzt/berlin/kosar-hedayat --motive "Hautkrebsvorsorge"
 
 * Ein Argument mit `/` (oder eine Doctolib-URL) ist immer ein Profil-Slug.
   Alles andere wird als Suche `FACH ORT` verstanden. Im Terminal kommt
-  eine nummerierte Trefferliste mit „Nummer wählen“; ohne TTY (Pipe/Agent)
-  endet der Aufruf mit Exit 1 und der Trefferliste im Fehlerobjekt – dann
-  `--pick N` oder direkt einen Slug verwenden.
+  eine nummerierte Trefferliste (einmal, vor der Auswahl) mit
+  „Nummer wählen“; danach nur noch „Gewählt: Dr. Name“ und die Termine
+  gruppiert nach Tag („Mo 03.11.: 09:00, 09:30, 10:15“, max. 8 Uhrzeiten
+  pro Zeile). Ohne TTY (Pipe/Agent) endet der Aufruf mit Exit 1 und der
+  Trefferliste im Fehlerobjekt – dann `--pick N` oder direkt einen Slug
+  verwenden. Mit `-v`/`--verbose` kommen der Praxis-Kontext (Praxis,
+  Motiv, Zähler) und Slugs zurück in die Terminal-Ausgabe.
 * `--days`: 1..30, Default 7. Doctolib liefert pro Call max. 7 Tage,
   bei `--days > 7` paginieren wir mit fortlaufendem `start_date_time`.
 * `--insurance`: `public` / `private` / `any` (Default `any`).
@@ -101,15 +113,20 @@ begrenzen wir die Anzahl der `availabilities.json`-Calls pro Invocation
 auf **8** und melden `truncated: true` im JSON, wenn das Limit greift.
 Die vollständige Praxis-/Adressliste steht in `doctolib show PROFILE`.
 
-### `doctolib specialities [--json]`
+### `doctolib specialities [FILTER] [--json]`
 
 Statische Whitelist bekannter Doctolib-Fachrichtungs-Slugs (58 Einträge,
 stichprobenartig live verifiziert). Inkludiert Synonyme
 (`augenarzt`/`augenheilkunde`, `hausarzt`/`allgemeinmedizin`,
 `orthopaede`/`orthopadie`, …).
 
+Im Terminal erscheint ein mehrspaltiges, kompaktes Slug-Raster. Mit dem
+optionalen `FILTER` (Teilstring, case-insensitiv, z. B. `haut`) bleiben
+nur passende Einträge; ohne Treffer Exit 1.
+
 ```bash
 doctolib specialities
+doctolib specialities haut
 doctolib specialities --json | jq '.count'
 ```
 

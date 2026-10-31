@@ -20,9 +20,8 @@ Liste mit Name und Adresse.
 $ pipx install git+https://github.com/smlfg/doctolib-cli
 $ doctolib search hautarzt heilbronn
 < Suche: hautarzt in heilbronn
-< [1] Dr. med. Sabine Weber – Hautkrebsvorsorge | Hauptstraße 12, 74072 Heilbronn
-< [2] Dr. med. Jonas Keller – Akne-Behandlung | Neckarstraße 45, 74076 Heilbronn
-< [3] Praxis Dr. med. Elif Yilmaz – Hautkrebsvorsorge | Marktplatz 3, 74072 Heilbronn
+< 1. Dr. med. Sabine Weber – Hautkrebsvorsorge
+<    Hauptstraße 12, 74072 Heilbronn
 < 3 Treffer.
 ! exit 0
 ```
@@ -37,34 +36,30 @@ $ pipx install git+https://github.com/smlfg/doctolib-cli
 $ doctolib slots hautarzt heilbronn
 < Nummer wählen [1-3]:
 > 1
-< Gewählt: Dr. med. Sabine Weber (hautarzt/heilbronn/dr-sabine-weber)
-< Freie Termine – Praxis Dr. Sabine Weber
-< Hauptstraße 12
-< Motiv: Hautkrebsvorsorge (public)
-< Di 03.11.2026: 09:00, 10:30
-< Mi 04.11.2026: 14:15
-< 3 Termin(e).
+< Gewählt: Dr. med. Sabine Weber
+< Di 03.11.: 09:00, 10:30
+< Mi 04.11.: 14:15
 ! exit 0
 ```
 
 ## Profil ansehen und Fachrichtungen
 
 Die Nutzerin lässt sich das erste Suchergebnis als lesbares Profil anzeigen
-und listet danach die bekannten Fachrichtungen auf.
+und listet danach die passenden Fachrichtungen über einen Filter auf.
 
 ```ux-session
 $ pipx install git+https://github.com/smlfg/doctolib-cli
 $ doctolib show hautarzt heilbronn --pick 1
-< Gewählt: Dr. med. Sabine Weber (hautarzt/heilbronn/dr-sabine-weber)
-< Dr. med. Sabine Weber (Physician)
-< Fachrichtung: Haut- und Geschlechtskrankheiten
+< Gewählt: Dr. med. Sabine Weber
+< Dr. med. Sabine Weber
+< Fach: Haut- und Geschlechtskrankheiten
 < Adresse: Hauptstraße 12, 74072 Heilbronn
-< 4711 Hautkrebsvorsorge
-< Slug: hautarzt/heilbronn/dr-sabine-weber
-$ doctolib specialities
+< Online-Buchung: ja
+<~ Link: http://127\.0\.0\.1:\d+/hautarzt/heilbronn/dr-sabine-weber
+$ doctolib specialities haut
+< dermatologie
 < hautarzt
-< Haut- und Geschlechtskrankheiten / Dermatologie
-< Fachrichtungen.
+< 2 Fachrichtungen.
 ! exit 0
 ```
 

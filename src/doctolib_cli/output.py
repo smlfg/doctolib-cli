@@ -39,8 +39,11 @@ def _format_time(value: Any) -> str:
         return s
 
 
-def format_search(payload: dict[str, Any]) -> str:
-    """Nummerierte Trefferliste inkl. Adresse und Slug."""
+def format_search(payload: dict[str, Any], *, verbose: bool = False) -> str:
+    """Nummerierte Trefferliste: „ 1. Name – Fach“, Adresse eingerückt.
+
+    Der Slug erscheint nur mit ``verbose`` (``-v``/``--verbose``).
+    """
     query = payload.get("query") or {}
     lines: list[str] = []
     if query:
@@ -57,16 +60,15 @@ def format_search(payload: dict[str, Any]) -> str:
             continue
         name = rec.get("name") or "?"
         kind = rec.get("motive") or rec.get("type") or ""
-        address = format_address(rec.get("address"))
-        slug = rec.get("slug") or ""
-        line = f"[{i}] {name}"
+        line = f"{i:>2}. {name}"
         if kind:
             line += f" – {kind}"
-        if address:
-            line += f" | {address}"
-        if slug:
-            line += f" | slug: {slug}"
         lines.append(line)
+        address = format_address(rec.get("address"))
+        if address:
+            lines.append(f"    {address}")
+        if verbose and rec.get("slug"):
+            lines.append(f"    slug: {rec['slug']}")
     count = payload.get("count", len(results))
     lines.append("")
     lines.append(f"{count} Treffer.")

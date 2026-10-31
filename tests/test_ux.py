@@ -52,12 +52,18 @@ def _slots_payload() -> dict:
 
 # ----- Formatter ----------------------------------------------------------
 
-def test_format_search_is_numbered_with_address_and_slug() -> None:
+def test_format_search_hides_slug_without_verbose() -> None:
     text = format_search(_search_payload())
-    assert "[1] Dr. med. X – Hautarzt" in text
-    assert "Hauptstr. 1, 74072 Heilbronn" in text
-    assert "slug: hautarzt/heilbronn/dr-x" in text
+    assert " 1. Dr. med. X – Hautarzt" in text
+    assert "    Hauptstr. 1, 74072 Heilbronn" in text
+    assert "slug" not in text
     assert "1 Treffer." in text
+
+
+def test_format_search_verbose_adds_slug_line() -> None:
+    text = format_search(_search_payload(), verbose=True)
+    assert " 1. Dr. med. X – Hautarzt" in text
+    assert "    slug: hautarzt/heilbronn/dr-x" in text
 
 
 def test_format_slots_groups_times_per_day() -> None:
@@ -98,9 +104,22 @@ def test_search_terminal_output_is_text(monkeypatch, capsys) -> None:
     assert code == 0
     out = capsys.readouterr().out
     assert out.startswith("Suche: hautarzt in berlin")
-    assert "[1] Dr. med. X" in out
-    assert "slug: hautarzt/berlin/dr-x" in out
+    assert " 1. Dr. med. X" in out
+    assert "slug" not in out
     assert not out.lstrip().startswith("{")
+
+
+def test_search_terminal_verbose_shows_slug(monkeypatch, capsys) -> None:
+    html = search_html_berlin([
+        {"name": "Dr. med. X", "url": "/hautarzt/berlin/dr-x"},
+    ])
+    import doctolib_cli.search as search_mod
+    monkeypatch.setattr(search_mod, "_fetch_search_html", lambda url: html)
+    monkeypatch.setattr(cli, "_is_tty", lambda: True)
+    code = cli.main(["search", "hautarzt", "berlin", "-v"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "    slug: hautarzt/berlin/dr-x" in out
 
 
 def test_search_pipe_keeps_json_without_flag(monkeypatch, capsys) -> None:

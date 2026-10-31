@@ -44,6 +44,11 @@ def _add_json_flag(p: argparse.ArgumentParser) -> None:
                    help="Genau ein JSON-Objekt auf stdout ausgeben.")
 
 
+def _add_verbose_flag(p: argparse.ArgumentParser) -> None:
+    p.add_argument("-v", "--verbose", action="store_true",
+                   help="Slug in der Terminal-Ausgabe zeigen (nur TTY-Modus).")
+
+
 def _is_tty() -> bool:
     """True nur bei echtem Terminal auf stdout (Tests patchen das)."""
     try:
@@ -106,6 +111,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_s.add_argument("location", help="Ort (Slug oder Name).")
     p_s.add_argument("--limit", type=int, default=20,
                      help="1..50 (default 20).")
+    _add_verbose_flag(p_s)
     _add_json_flag(p_s)
 
     p_sh = sub.add_parser(
@@ -191,7 +197,8 @@ def cmd_search(args: argparse.Namespace) -> int:
     if code != 0:
         return _fail_payload(payload, as_json=args.json)
     if _human_mode(args):
-        sys.stdout.write(format_search(payload) + "\n")
+        sys.stdout.write(format_search(payload,
+                                       verbose=getattr(args, "verbose", False)) + "\n")
         return 0
     return emit(payload, args.json)
 

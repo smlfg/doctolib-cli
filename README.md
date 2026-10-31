@@ -10,8 +10,7 @@ doctolib show hautarzt heilbronn --pick 1
 doctolib specialities haut
 ```
 
-Für die Live-Suche (nicht für einen lokalen Fake-Server) sollte Chromium
-einmalig installiert werden: `playwright install chromium`.
+Beim ersten `search` lädt doctolib einmalig Chromium herunter (ca. 1 Minute).
 
 Wenn der Befehl danach nicht gefunden wird: `pipx` nutzen oder das
 `bin`-Verzeichnis des venv in den `PATH` aufnehmen.
@@ -28,8 +27,9 @@ suchen – komplett **read-only**, ohne Login, ohne Buchen.
 
 ```bash
 pip install git+https://github.com/smlfg/doctolib-cli
-playwright install chromium    # nötig für `search`
 ```
+
+Chromium wird beim ersten `search` automatisch installiert.
 
 Das CLI heißt nach der Installation `doctolib` (Konsolen-Skript aus dem
 Paket `doctolib-cli`). Python-Abhängigkeiten (`requests`,

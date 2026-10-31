@@ -6,6 +6,7 @@ import json
 
 from doctolib_cli.search import (
     _LdJsonExtractor,
+    _clean_name,
     _extract_collection,
     _extract_window_place,
     _item_to_record,
@@ -43,6 +44,12 @@ def test_slugify_location_basic() -> None:
     assert _slugify_location("Straße") == "strasse"
     assert _slugify_location("  Frankfurt am Main  ") == "frankfurt-am-main"
     assert _slugify_location("---") == ""  # komplett strip-bares → leer
+
+
+def test_clean_name_double_dot() -> None:
+    assert _clean_name("Dr.. Steffen Hummel") == "Dr. Steffen Hummel"
+    assert _clean_name("Dr. med.. Nina Flegl") == "Dr. med. Nina Flegl"
+    assert _clean_name("  Dr.   A  ") == "Dr. A"
 
 
 def test_ldjson_extractor_recognizes_blocks() -> None:

@@ -51,6 +51,12 @@ def _slugify_location(value: str) -> str:
     return s
 
 
+def _clean_name(name: str) -> str:
+    """Entfernt doppelte Punkte und normalisiert Whitespace."""
+    name = re.sub(r"\.{2,}", ".", name)
+    return re.sub(r"\s+", " ", name).strip()
+
+
 def _practice_id_from_url(url: str) -> int | None:
     m = re.search(r"pid=practice-(\d+)", url)
     return int(m.group(1)) if m else None
@@ -119,6 +125,8 @@ def _item_to_record(item: Any) -> dict[str, Any] | None:
     inner_any = item.get("item")
     inner: dict[str, Any] = inner_any if isinstance(inner_any, dict) else item
     name = inner.get("name")
+    if isinstance(name, str):
+        name = _clean_name(name)
     url = inner.get("url")
     if not name or not url:
         return None
@@ -245,6 +253,8 @@ def _extract_window_place(html: str) -> dict[str, Any] | None:
 
 def _provider_to_record(prov: dict[str, Any]) -> dict[str, Any] | None:
     name = prov.get("name")
+    if isinstance(name, str):
+        name = _clean_name(name)
     link = prov.get("link") or ""
     if not name or not link:
         return None
